@@ -1,0 +1,153 @@
+domain: ecommerce
+locale: en_US
+currency: USD
+seed: 42
+tables:
+  - name: categories
+    rows: 8
+    columns:
+      - name: category_id
+        type: id
+        pk: true
+        prefix: "CAT-"
+      - name: category_name
+        type: category
+        values:
+          Electronics: 0.25
+          Apparel & Fashion: 0.20
+          Home & Kitchen: 0.20
+          Books & Media: 0.15
+          Health & Beauty: 0.10
+          Sports & Outdoors: 0.10
+
+  - name: products
+    rows: 30
+    columns:
+      - name: product_id
+        type: id
+        pk: true
+        prefix: "PROD-"
+      - name: category_id
+        type: id
+      - name: title
+        type: text-placeholder
+      - name: price
+        type: float
+        dist: lognormal
+        params:
+          mean: 3.5
+          sigma: 0.8
+        min: 9.99
+        max: 1899.99
+      - name: stock_qty
+        type: int
+        min: 10
+        max: 500
+
+  - name: customers
+    rows: 100
+    columns:
+      - name: customer_id
+        type: id
+        pk: true
+        prefix: "CUST-"
+      - name: full_name
+        type: person_name
+      - name: email
+        type: email
+        derive_from: full_name
+        unique: true
+      - name: phone
+        type: phone
+        unique: true
+      - name: registered_date
+        type: date
+        range: ["2022-01-01", "2025-06-01"]
+      - name: tier
+        type: category
+        values:
+          Standard: 0.70
+          Gold: 0.22
+          Platinum: 0.08
+
+  - name: orders
+    rows: 200
+    columns:
+      - name: order_id
+        type: id
+        pk: true
+        prefix: "ORD-"
+      - name: customer_id
+        type: id
+      - name: order_date
+        type: datetime
+        range: ["2023-01-01", "2025-09-01"]
+      - name: total_amount
+        type: float
+        dist: lognormal
+        params:
+          mean: 4.2
+          sigma: 0.6
+        min: 15.0
+        max: 4500.0
+      - name: status
+        type: category
+        values:
+          Delivered: 0.78
+          Shipped: 0.12
+          Processing: 0.06
+          Cancelled: 0.04
+
+  - name: order_items
+    rows: 400
+    columns:
+      - name: item_id
+        type: id
+        pk: true
+        prefix: "ITEM-"
+      - name: order_id
+        type: id
+      - name: product_id
+        type: id
+      - name: quantity
+        type: int
+        min: 1
+        max: 6
+      - name: unit_price
+        type: float
+        min: 9.99
+        max: 1899.99
+
+relations:
+  - parent: categories
+    child: products
+    fk: category_id
+    cardinality: "1:N"
+
+  - parent: customers
+    child: orders
+    fk: customer_id
+    cardinality: "1:N"
+    ratio: 2.0
+
+  - parent: orders
+    child: order_items
+    fk: order_id
+    cardinality: "1:N"
+    ratio: 2.0
+
+  - parent: products
+    child: order_items
+    fk: product_id
+    cardinality: "1:N"
+
+rules:
+  - "orders.order_date >= customers.registered_date"
+
+edge_cases:
+  null_rate: 0.01
+  outlier_rate: 0.01
+  duplicates: false
+  unicode_names: false
+  mask_emails: false
+  hash_secrets: false

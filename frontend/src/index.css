@@ -1,0 +1,216 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
+
+/* ==========================================================================
+   CLOAKDATA DESIGN SYSTEM TOKENS
+   Aesthetic: Near-black, crisp white typography, razor-sharp technical red accent
+   ========================================================================== */
+
+:root {
+  /* Core Backgrounds */
+  --cd-bg-base: #050505;
+  --cd-bg-elevated: #080808;
+  --cd-bg-card: #0d0d0d;
+  --cd-bg-surface: #111111;
+  --cd-bg-surface-hover: #161616;
+  --cd-bg-subtle: #1a1a1a;
+
+  /* Accent Red */
+  --cd-red: #ff2a1a;
+  --cd-red-hover: #e9271a;
+  --cd-red-dark: #b8180c;
+  --cd-red-subtle: rgba(255, 42, 26, 0.12);
+  --cd-red-glow: rgba(255, 42, 26, 0.35);
+  --cd-red-border: rgba(255, 42, 26, 0.4);
+
+  /* Typography */
+  --cd-text-primary: #ffffff;
+  --cd-text-secondary: #f0f0f0;
+  --cd-text-body: #a0a0a0;
+  --cd-text-muted: #666666;
+  --cd-text-dim: #444444;
+
+  /* Borders & Dividers */
+  --cd-border-subtle: #181818;
+  --cd-border: #222222;
+  --cd-border-hover: #333333;
+  --cd-border-strong: #444444;
+
+  /* Status Colors */
+  --cd-status-valid: #10b981;
+  --cd-status-valid-bg: rgba(16, 185, 129, 0.12);
+  --cd-status-valid-border: rgba(16, 185, 129, 0.3);
+  --cd-status-warning: #f59e0b;
+  --cd-status-danger: #ff2a1a;
+  --cd-status-info: #3b82f6;
+
+  /* Fonts */
+  --cd-font-sans: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --cd-font-mono: 'JetBrains Mono', monospace;
+
+  /* Compatibility variables for existing components */
+  --bg-canvas: #050505;
+  --bg-surface: #0d0d0d;
+  --bg-subtle: #141414;
+  --bg-hover: #1a1a1a;
+  --bg-card: #0d0d0d;
+  --primary: #ff2a1a;
+  --primary-hover: #e9271a;
+  --primary-dark: #b8180c;
+  --primary-light: rgba(255, 42, 26, 0.15);
+  --primary-border: rgba(255, 42, 26, 0.4);
+  --primary-text: #ff6b5e;
+  --text-heading: #ffffff;
+  --text-body: #a0a0a0;
+  --text-muted: #666666;
+  --text-subtle: #444444;
+  --border-light: #181818;
+  --border-default: #222222;
+  --border-dark: #333333;
+  --bubble-user: #151515;
+  --bubble-user-text: #ffffff;
+  --table-header-bg: #111111;
+  --table-row-alt: #080808;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  background-color: var(--cd-bg-base);
+}
+
+body {
+  background-color: var(--cd-bg-base);
+  color: var(--cd-text-body);
+  font-family: var(--cd-font-sans);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--cd-bg-base);
+}
+::-webkit-scrollbar-thumb {
+  background: #222222;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--cd-red);
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--cd-text-primary);
+  font-family: var(--cd-font-sans);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+/* Buttons & Inputs */
+button {
+  cursor: pointer;
+  font-family: var(--cd-font-sans);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+}
+button:active {
+  transform: translateY(1px);
+}
+
+input, select, textarea {
+  font-family: var(--cd-font-sans);
+  outline: none;
+  background-color: var(--cd-bg-surface);
+  color: var(--cd-text-primary);
+  border: 1px solid var(--cd-border);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--cd-red) !important;
+  box-shadow: 0 0 0 2px var(--cd-red-subtle);
+}
+
+/* Monospace Utilities */
+.font-mono {
+  font-family: var(--cd-font-mono);
+}
+
+/* Grid & Geometric Accents */
+.tech-grid-bg {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+.tech-grid-dense {
+  background-size: 20px 20px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+}
+
+/* Infinite Marquee */
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: marquee 28s linear infinite;
+}
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
+
+/* Pulse / Glow */
+@keyframes redPulse {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+
+.pulse-red-glow {
+  animation: redPulse 4s ease-in-out infinite;
+}
+
+/* Float Animation */
+@keyframes floatGentle {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+.animate-float {
+  animation: floatGentle 5s ease-in-out infinite;
+}
+
+/* Fade In */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Spin */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin {
+  animation: spin 1s linear infinite;
+}

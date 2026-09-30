@@ -1,0 +1,117 @@
+domain: invoicing
+locale: en_US
+currency: USD
+seed: 42
+tables:
+  - name: customers
+    rows: 16
+    columns:
+      - name: customer_id
+        type: id
+        pk: true
+        prefix: "CUST-"
+      - name: full_name
+        type: person_name
+      - name: email
+        type: email
+        derive_from: full_name
+        unique: true
+      - name: phone
+        type: phone
+      - name: city
+        type: city
+      - name: national_id
+        type: id
+        prefix: "NID-"
+      - name: address
+        type: address
+      - name: created_at
+        type: date
+        range: ["2023-01-01", "2025-01-01"]
+
+  - name: invoices
+    rows: 16
+    columns:
+      - name: invoice_id
+        type: id
+        pk: true
+        prefix: "INV-"
+      - name: customer_id
+        type: id
+      - name: invoice_number
+        type: id
+        prefix: "INV-2025-"
+      - name: issue_date
+        type: date
+        range: ["2024-01-01", "2025-06-01"]
+      - name: due_date
+        type: date
+        range: ["2024-02-01", "2025-07-01"]
+      - name: total_amount
+        type: float
+        dist: normal
+        params:
+          mean: 75000.0
+          std: 25000.0
+        min: 1000.0
+        max: 500000.0
+      - name: currency
+        type: category
+        values:
+          PKR: 1.0
+      - name: status
+        type: category
+        values:
+          PAID: 0.65
+          PENDING: 0.25
+          OVERDUE: 0.10
+
+  - name: statements
+    rows: 16
+    columns:
+      - name: statement_id
+        type: id
+        pk: true
+        prefix: "STM-"
+      - name: customer_id
+        type: id
+      - name: statement_date
+        type: date
+        range: ["2025-01-01", "2025-09-01"]
+      - name: opening_balance
+        type: float
+        dist: uniform
+        min: 5000.0
+        max: 50000.0
+      - name: closing_balance
+        type: float
+        dist: uniform
+        min: 10000.0
+        max: 120000.0
+      - name: currency
+        type: category
+        values:
+          PKR: 1.0
+      - name: statement_notes
+        type: text-placeholder
+
+relations:
+  - parent: customers
+    child: invoices
+    fk: customer_id
+    cardinality: "1:N"
+    ratio: 1.0
+  - parent: customers
+    child: statements
+    fk: customer_id
+    cardinality: "1:N"
+    ratio: 1.0
+
+rules:
+  - "invoices.due_date >= invoices.issue_date"
+
+edge_cases:
+  null_rate: 0.0
+  outlier_rate: 0.0
+  duplicates: false
+  unicode_names: false
