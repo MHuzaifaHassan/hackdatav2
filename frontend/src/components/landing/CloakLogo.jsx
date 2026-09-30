@@ -58,7 +58,7 @@ export default function CloakLogo({ size = 28, showWordmark = true, wordmarkSize
             lineHeight: 1,
           }}
         >
-          CLOAK<span style={{ color: "#ffffff" }}>DATA</span>
+          <span style={{ color: "#ff2a1a" }}>CLOAK</span><span style={{ color: "#ffffff" }}>DATA</span>
         </span>
       )}
     </div>
