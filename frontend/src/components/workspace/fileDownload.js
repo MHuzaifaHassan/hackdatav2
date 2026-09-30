@@ -7,7 +7,7 @@
  * 5. Automatically writes to Desktop and Downloads simultaneously without spawning blob UUID tabs.
  */
 
-const API_BASE = "http://127.0.0.1:8000";
+import { API_BASE } from "../../config";
 
 /**
  * Clean browser download trigger using hidden anchor tag with strict a.download attribute.

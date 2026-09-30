@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { downloadCsv, downloadJson, downloadSql, downloadTablesZip, downloadPdf } from "./fileDownload";
+import { API_BASE } from "../../config";
 import {
   IconUsers,
   IconDatabase,
@@ -1227,14 +1228,14 @@ export default function AIChatWorkspace({ onOpenSqlModal, showNotification }) {
 
     // Attempt backend generation first
     try {
-      const inferRes = await fetch("http://127.0.0.1:8000/spec/infer", {
+      const inferRes = await fetch(`${API_BASE}/spec/infer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: prompt }),
       });
       if (inferRes.ok) {
         const spec = await inferRes.json();
-        const genRes = await fetch("http://127.0.0.1:8000/generate/relational", {
+        const genRes = await fetch(`${API_BASE}/generate/relational`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(spec),
@@ -1324,14 +1325,14 @@ export default function AIChatWorkspace({ onOpenSqlModal, showNotification }) {
 
     // Attempt backend generation first
     try {
-      const inferRes = await fetch("http://127.0.0.1:8000/spec/infer", {
+      const inferRes = await fetch(`${API_BASE}/spec/infer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: prompt }),
       });
       if (inferRes.ok) {
         const spec = await inferRes.json();
-        const genRes = await fetch("http://127.0.0.1:8000/generate/relational", {
+        const genRes = await fetch(`${API_BASE}/generate/relational`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(spec),
@@ -1592,7 +1593,7 @@ LIMIT 10;`;
   const handleDownloadInvoicePdf = async (doc) => {
     try {
       if (showNotification) showNotification("Generating certified PDF invoice...");
-      const res = await fetch("http://127.0.0.1:8000/documents/pdf", {
+      const res = await fetch(`${API_BASE}/documents/pdf`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
