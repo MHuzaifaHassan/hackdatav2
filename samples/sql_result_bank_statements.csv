@@ -1,0 +1,7 @@
+id,date,description,category,amount,type,balance
+TXN-101,2026-09-01,Salary Deposit - Acme Corp,Income,85000,CREDIT,85000
+TXN-102,2026-09-03,Utility Payment - Electricity,Utilities,4250,DEBIT,80750
+TXN-103,2026-09-07,Grocery Mart - Superstore,Groceries,12700,DEBIT,68050
+TXN-105,2026-09-14,Freelance Client Retainer,Income,25000,CREDIT,89450
+TXN-106,2026-09-18,Cloud Infrastructure Hosting,Technology,8400,DEBIT,81050
+TXN-108,2026-09-27,Fuel & Transport Refill,Travel,5500,DEBIT,73450
