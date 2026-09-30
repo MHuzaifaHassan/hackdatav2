@@ -1,6 +1,8 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { downloadCsv, downloadJson, downloadSql, downloadTablesZip, downloadPdf } from "./fileDownload";
 import { API_BASE } from "../../config";
+import RelationalErdDiagram from "./RelationalErdDiagram";
+import { DOMAIN_PRESETS, fetchOrInferRelationalSchema } from "./relationalPresets";
 import {
   IconUsers,
   IconDatabase,
@@ -25,6 +27,12 @@ const STARTING_SUGGESTIONS = [
     title: "Employee Records & Departments",
     prompt: "Generate 10,000 employee records with departments, salaries, joining dates and locations.",
     iconType: "users",
+  },
+  {
+    category: "Relational Data",
+    title: "Healthcare Database & ERD",
+    prompt: "Create a relational healthcare database with patients, visits and lab tests, and show its ERD diagram.",
+    iconType: "database",
   },
   {
     category: "Relational Data",
@@ -171,12 +179,96 @@ function generateRealisticHrTables(employeeCount = 500) {
   };
 }
 
+function generateRealisticHealthcareTables(patientCount = 100) {
+  const firstNames = ["Allison", "Noah", "Angie", "Daniel", "Cristian", "Emily", "Jacob", "Sarah", "Michael", "Olivia"];
+  const lastNames = ["Hill", "Rhodes", "Henderson", "Wagner", "Santos", "Miller", "Davis", "Wilson", "Taylor", "Anderson"];
+  const bloodTypes = ["A+", "O+", "B+", "AB+", "A-", "O-"];
+  const depts = ["Cardiology", "General Medicine", "Pediatrics", "Orthopedics", "Emergency"];
+  const tests = ["Complete Blood Count", "Lipid Panel", "Metabolic Panel", "Thyroid TSH"];
+
+  const patients = [];
+  for (let i = 1; i <= patientCount; i++) {
+    const fn = firstNames[(i * 3) % firstNames.length];
+    const ln = lastNames[(i * 7) % lastNames.length];
+    const id = `PAT-${String(i).padStart(5, "0")}`;
+    patients.push({
+      patient_id: id,
+      full_name: `${fn} ${ln}`,
+      gender: i % 2 === 0 ? "female" : "male",
+      birth_date: `19${60 + (i % 35)}-0${(i % 9) + 1}-15`,
+      blood_type: bloodTypes[i % bloodTypes.length],
+      phone: `+1-702-555-${1000 + i}`,
+      email: `${fn.toLowerCase()}.${ln.toLowerCase()}@example.com`,
+    });
+  }
+
+  const visits = [];
+  const labReports = [];
+  let visitIdx = 1;
+  let reportIdx = 1;
+
+  patients.slice(0, 50).forEach((pat) => {
+    const numVisits = 1 + (visitIdx % 3);
+    for (let v = 0; v < numVisits; v++) {
+      const vId = `VIS-${String(visitIdx).padStart(5, "0")}`;
+      visits.push({
+        visit_id: vId,
+        patient_id: pat.patient_id,
+        visit_date: `2026-0${(visitIdx % 8) + 1}-10`,
+        department: depts[visitIdx % depts.length],
+        attending_physician: `Dr. ${lastNames[(visitIdx * 2) % lastNames.length]}`,
+        systolic_bp: 110 + (visitIdx % 40),
+        diastolic_bp: 70 + (visitIdx % 25),
+      });
+
+      labReports.push({
+        report_id: `LAB-${String(reportIdx).padStart(5, "0")}`,
+        visit_id: vId,
+        test_name: tests[reportIdx % tests.length],
+        result_value: parseFloat((80 + (reportIdx % 60) * 1.5).toFixed(1)),
+        status: reportIdx % 4 === 0 ? "Abnormal" : "Normal",
+      });
+      reportIdx++;
+      visitIdx++;
+    }
+  });
+
+  return {
+    patients,
+    visits,
+    lab_reports: labReports,
+  };
+}
+
 // ===========================================================================
 // STANDALONE COMPONENT: Tabular Dataset Artifact
 // ===========================================================================
 function DatasetArtifactView({ data, onDownloadCsv, onDownloadJson, onExportSql, onSendMessage }) {
-  const [viewTab, setViewTab] = useState("table"); // 'table' | 'schema' | 'stats'
+  const [viewTab, setViewTab] = useState("table"); // 'table' | 'schema' | 'stats' | 'erd'
   const [searchTerm, setSearchTerm] = useState("");
+
+  const resolvedSchema = useMemo(() => {
+    if (data.schema && data.schema.tables) return data.schema;
+    const nameLower = (data.datasetName || "").toLowerCase();
+    const domainLower = (data.domain || "").toLowerCase();
+
+    if (domainLower.includes("health") || nameLower.includes("patient") || nameLower.includes("doctor") || nameLower.includes("visit") || nameLower.includes("clinic")) {
+      return DOMAIN_PRESETS.healthcare;
+    }
+    if (domainLower.includes("fintech") || nameLower.includes("account") || nameLower.includes("bank") || nameLower.includes("transaction") || nameLower.includes("loan")) {
+      return DOMAIN_PRESETS.fintech;
+    }
+    if (domainLower.includes("hr") || nameLower.includes("employee") || nameLower.includes("department") || nameLower.includes("salary")) {
+      return DOMAIN_PRESETS.hr;
+    }
+    if (domainLower.includes("logistic") || nameLower.includes("shipment") || nameLower.includes("warehouse")) {
+      return DOMAIN_PRESETS.logistics;
+    }
+    if (domainLower.includes("education") || nameLower.includes("student") || nameLower.includes("course") || nameLower.includes("professor")) {
+      return DOMAIN_PRESETS.education;
+    }
+    return DOMAIN_PRESETS.ecommerce;
+  }, [data.schema, data.datasetName, data.domain]);
 
   const filteredRows = (data.rows || []).filter((r) =>
     Object.values(r).some((v) => String(v).toLowerCase().includes(searchTerm.toLowerCase()))
@@ -289,6 +381,26 @@ function DatasetArtifactView({ data, onDownloadCsv, onDownloadJson, onExportSql,
             </button>
           )}
           <button
+            onClick={() => setViewTab("erd")}
+            title="View Relational ERD Schema Diagram"
+            style={{
+              backgroundColor: viewTab === "erd" ? "rgba(255, 42, 26, 0.2)" : "#161616",
+              border: viewTab === "erd" ? "1px solid #ff2a1a" : "1px solid #282828",
+              color: viewTab === "erd" ? "#ff4d3d" : "#cccccc",
+              padding: "6px 12px",
+              borderRadius: "4px",
+              fontSize: "12px",
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+            }}
+          >
+            <span style={{ fontSize: "12px" }}>📊</span>
+            <span>Relational ERD</span>
+          </button>
+          <button
             onClick={() => onSendMessage(`Test whether this ${data.datasetName} dataset is truly synthetic.`)}
             style={{
               backgroundColor: "#161616",
@@ -322,6 +434,7 @@ function DatasetArtifactView({ data, onDownloadCsv, onDownloadJson, onExportSql,
             { id: "table", label: "Interactive Table" },
             { id: "schema", label: "Schema & Constraints" },
             { id: "stats", label: "Distributions & Statistics" },
+            { id: "erd", label: "Relational Schema / ERD" },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -335,9 +448,13 @@ function DatasetArtifactView({ data, onDownloadCsv, onDownloadJson, onExportSql,
                 color: viewTab === tab.id ? "#ffffff" : "#666666",
                 fontWeight: viewTab === tab.id ? 700 : 500,
                 borderBottom: viewTab === tab.id ? "2px solid #ff2a1a" : "2px solid transparent",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
               }}
             >
-              {tab.label}
+              {tab.id === "erd" && <span style={{ color: viewTab === tab.id ? "#ff4d3d" : "#666666" }}>📊</span>}
+              <span>{tab.label}</span>
             </button>
           ))}
         </div>
@@ -434,6 +551,70 @@ function DatasetArtifactView({ data, onDownloadCsv, onDownloadJson, onExportSql,
           </div>
         </div>
       )}
+
+      {/* Tab 4: Relational Schema / ERD Diagram */}
+      {viewTab === "erd" && (
+        <div style={{ padding: "16px 20px" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: "14px",
+              flexWrap: "wrap",
+              gap: "10px",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: "#ffffff" }}>
+                Relational Schema & Entity Relationship Diagram (ERD)
+              </div>
+              <div style={{ fontSize: "11px", color: "#777777", fontFamily: "monospace" }}>
+                Active Entity: <span style={{ color: "#ff4d3d" }}>{data.datasetName}</span> • Zero Orphan Foreign Key Guarantee
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                if (onSendMessage) {
+                  onSendMessage(
+                    `Generate the full multi-table relational database for ${resolvedSchema.domain || data.datasetName} with all related parent-child tables.`
+                  );
+                }
+              }}
+              style={{
+                backgroundColor: "#ff2a1a",
+                color: "#ffffff",
+                border: "none",
+                padding: "6px 14px",
+                borderRadius: "4px",
+                fontSize: "11px",
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                boxShadow: "0 2px 10px rgba(255, 42, 26, 0.3)",
+              }}
+            >
+              <span>⚡</span>
+              <span>Generate Full Relational Database</span>
+            </button>
+          </div>
+
+          <RelationalErdDiagram
+            schema={resolvedSchema}
+            activeTable={data.datasetName}
+            onSelectTable={(tName) => {
+              if (tName !== data.datasetName && onSendMessage) {
+                onSendMessage(`Generate sample records for table ${tName} connected to ${data.datasetName}`);
+              }
+            }}
+            tableCounts={{ [data.datasetName]: data.rowCount }}
+            height={420}
+            compact={true}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -443,9 +624,66 @@ function DatasetArtifactView({ data, onDownloadCsv, onDownloadJson, onExportSql,
 // ===========================================================================
 function RelationalArtifactView({ data, onExportSql, onDownloadCsv, onDownloadZip, onDownloadJson }) {
   const tableKeys = Object.keys(data.tables || {});
-  const [selectedTable, setSelectedTable] = useState(tableKeys[0] || "departments");
+  const [selectedTable, setSelectedTable] = useState(tableKeys[0] || "patients");
+  const [artifactTab, setArtifactTab] = useState("erd"); // 'erd' | 'table'
   const effectiveTable = (data.tables && data.tables[selectedTable]) ? selectedTable : (tableKeys[0] || "table");
   const activeRows = (data.tables && data.tables[effectiveTable]) || [];
+
+  const relationalSchema = useMemo(() => {
+    if (data.schema && data.schema.tables) return data.schema;
+    const pDomain = (data.dbName || "").toLowerCase();
+    if (pDomain.includes("health") || pDomain.includes("clinic") || pDomain.includes("patient") || pDomain.includes("doctor")) {
+      return DOMAIN_PRESETS.healthcare;
+    }
+    if (pDomain.includes("fintech") || pDomain.includes("bank") || pDomain.includes("account")) {
+      return DOMAIN_PRESETS.fintech;
+    }
+    if (pDomain.includes("hr") || pDomain.includes("employee")) {
+      return DOMAIN_PRESETS.hr;
+    }
+    if (pDomain.includes("logistic") || pDomain.includes("warehouse")) {
+      return DOMAIN_PRESETS.logistics;
+    }
+    if (pDomain.includes("education") || pDomain.includes("school") || pDomain.includes("student")) {
+      return DOMAIN_PRESETS.education;
+    }
+    if (pDomain.includes("ecommerce") || pDomain.includes("retail")) {
+      return DOMAIN_PRESETS.ecommerce;
+    }
+
+    // Dynamic schema derived directly from data.tables
+    const dynTables = tableKeys.map((tk) => {
+      const rows = data.tables[tk] || [];
+      const firstRow = rows[0] || {};
+      const cols = Object.keys(firstRow).map((c) => ({
+        name: c,
+        type: c.endsWith("_id") ? "id" : typeof firstRow[c] === "number" ? "float" : "varchar",
+        pk: c.endsWith("_id") && c.includes(tk.replace(/s$/, "")),
+        fk: c.endsWith("_id") && !c.includes(tk.replace(/s$/, "")),
+      }));
+      return { name: tk, rows: rows.length, columns: cols };
+    });
+
+    const dynRels = [];
+    dynTables.forEach((t) => {
+      t.columns.forEach((c) => {
+        if (c.fk) {
+          const parentName = dynTables.find(
+            (pt) => pt.name !== t.name && (c.name.startsWith(pt.name.replace(/s$/, "")) || pt.columns.some((pc) => pc.pk && pc.name === c.name))
+          )?.name;
+          if (parentName) {
+            dynRels.push({ parent: parentName, child: t.name, fk: c.name, cardinality: "1:N" });
+          }
+        }
+      });
+    });
+
+    return {
+      domain: data.dbName || "relational_dag",
+      tables: dynTables,
+      relations: dynRels,
+    };
+  }, [data, tableKeys]);
 
   return (
     <div
@@ -473,7 +711,9 @@ function RelationalArtifactView({ data, onExportSql, onDownloadCsv, onDownloadZi
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{ color: "#ff2a1a", fontSize: "11px" }}>■</span>
-            <strong style={{ fontSize: "14px", color: "#ffffff" }}>Relational Database Synthesized</strong>
+            <strong style={{ fontSize: "14px", color: "#ffffff" }}>
+              {(relationalSchema.domain || data.dbName || "Relational").toUpperCase()} Database Synthesized
+            </strong>
             <span
               style={{
                 fontFamily: "monospace",
@@ -577,67 +817,151 @@ function RelationalArtifactView({ data, onExportSql, onDownloadCsv, onDownloadZi
         </div>
       </div>
 
-      {/* Relational DAG Diagram Cards */}
-      <div style={{ padding: "16px 20px", backgroundColor: "#080808", borderBottom: "1px solid #141414" }}>
-        <div style={{ fontSize: "11px", color: "#666666", marginBottom: "8px", fontFamily: "monospace" }}>
-          RELATIONAL DAG TOPOLOGY:
+      {/* Sub-bar tabs: ERD Diagram vs Table Records */}
+      <div
+        style={{
+          padding: "8px 20px",
+          backgroundColor: "#0a0a0a",
+          borderBottom: "1px solid #141414",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "8px",
+        }}
+      >
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button
+            onClick={() => setArtifactTab("erd")}
+            style={{
+              background: "none",
+              border: "none",
+              padding: "4px 8px",
+              fontSize: "12px",
+              cursor: "pointer",
+              color: artifactTab === "erd" ? "#ffffff" : "#666666",
+              fontWeight: artifactTab === "erd" ? 700 : 500,
+              borderBottom: artifactTab === "erd" ? "2px solid #ff2a1a" : "2px solid transparent",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+            }}
+          >
+            <span>📊</span>
+            <span>Relational ERD Diagram</span>
+          </button>
+          <button
+            onClick={() => setArtifactTab("table")}
+            style={{
+              background: "none",
+              border: "none",
+              padding: "4px 8px",
+              fontSize: "12px",
+              cursor: "pointer",
+              color: artifactTab === "table" ? "#ffffff" : "#666666",
+              fontWeight: artifactTab === "table" ? 700 : 500,
+              borderBottom: artifactTab === "table" ? "2px solid #ff2a1a" : "2px solid transparent",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+            }}
+          >
+            <span>▤</span>
+            <span>Browse Records ({effectiveTable})</span>
+          </button>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-          {tableKeys.map((tk, idx) => (
-            <React.Fragment key={tk}>
-              <div
-                onClick={() => setSelectedTable(tk)}
-                style={{
-                  backgroundColor: effectiveTable === tk ? "#1c1414" : "#111111",
-                  border: effectiveTable === tk ? "1px solid #ff2a1a" : "1px solid #242424",
-                  borderRadius: "6px",
-                  padding: "8px 14px",
-                  cursor: "pointer",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                <div style={{ fontSize: "12px", fontWeight: 700, color: effectiveTable === tk ? "#ffffff" : "#cccccc" }}>
-                  {tk}
-                </div>
-                <div style={{ fontSize: "10px", color: "#ff4d3d", fontFamily: "monospace" }}>
-                  {data.tableCounts?.[tk] || "rows"}
-                </div>
-              </div>
-              {idx < tableKeys.length - 1 && <span style={{ color: "#ff2a1a", fontSize: "12px" }}>──1:N──►</span>}
-            </React.Fragment>
+
+        {/* Quick Table Switcher Pills */}
+        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+          <span style={{ fontSize: "11px", color: "#666666" }}>Tables:</span>
+          {tableKeys.map((tk) => (
+            <button
+              key={tk}
+              onClick={() => {
+                setSelectedTable(tk);
+                setArtifactTab("table");
+              }}
+              style={{
+                backgroundColor: effectiveTable === tk ? "rgba(255, 42, 26, 0.15)" : "#141414",
+                border: effectiveTable === tk ? "1px solid #ff2a1a" : "1px solid #242424",
+                color: effectiveTable === tk ? "#ffffff" : "#888888",
+                borderRadius: "3px",
+                padding: "2px 7px",
+                fontSize: "10px",
+                fontFamily: "monospace",
+                cursor: "pointer",
+              }}
+            >
+              {tk}
+            </button>
           ))}
         </div>
       </div>
 
-      {/* Active Table Data Preview */}
-      <div style={{ padding: "10px 20px", backgroundColor: "#0c0c0c", borderBottom: "1px solid #161616", fontSize: "12px", fontWeight: 700, color: "#ffffff" }}>
-        Active Table: <span style={{ color: "#ff4d3d", fontFamily: "monospace" }}>{effectiveTable}</span>
-      </div>
+      {artifactTab === "erd" ? (
+        <div style={{ padding: "16px 20px" }}>
+          <RelationalErdDiagram
+            schema={relationalSchema}
+            activeTable={effectiveTable}
+            onSelectTable={(tk) => {
+              setSelectedTable(tk);
+              setArtifactTab("table");
+            }}
+            tableCounts={data.tableCounts}
+            height={380}
+            compact={true}
+          />
+        </div>
+      ) : (
+        <>
+          {/* Active Table Data Preview */}
+          <div
+            style={{
+              padding: "10px 20px",
+              backgroundColor: "#0c0c0c",
+              borderBottom: "1px solid #161616",
+              fontSize: "12px",
+              fontWeight: 700,
+              color: "#ffffff",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <div>
+              Active Table: <span style={{ color: "#ff4d3d", fontFamily: "monospace" }}>{effectiveTable}</span>
+            </div>
+            <span style={{ fontSize: "11px", color: "#666666", fontFamily: "monospace" }}>
+              {activeRows.length} rows loaded
+            </span>
+          </div>
 
-      <div style={{ overflowX: "auto", maxHeight: "260px" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", fontFamily: "monospace", textAlign: "left" }}>
-          <thead>
-            <tr style={{ backgroundColor: "#0e0e0e", borderBottom: "1px solid #181818", color: "#666666" }}>
-              {Object.keys(activeRows[0] || {}).map((col, idx) => (
-                <th key={idx} style={{ padding: "8px 14px", fontWeight: 700 }}>
-                  {col.toUpperCase()}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {activeRows.map((r, rIdx) => (
-              <tr key={rIdx} style={{ borderBottom: "1px solid #141414" }}>
-                {Object.keys(r).map((col, cIdx) => (
-                  <td key={cIdx} style={{ padding: "8px 14px", color: cIdx === 0 ? "#ff4d3d" : "#cccccc" }}>
-                    {String(r[col])}
-                  </td>
+          <div style={{ overflowX: "auto", maxHeight: "260px" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px", fontFamily: "monospace", textAlign: "left" }}>
+              <thead>
+                <tr style={{ backgroundColor: "#0e0e0e", borderBottom: "1px solid #181818", color: "#666666" }}>
+                  {Object.keys(activeRows[0] || {}).map((col, idx) => (
+                    <th key={idx} style={{ padding: "8px 14px", fontWeight: 700 }}>
+                      {col.toUpperCase()}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {activeRows.slice(0, 15).map((r, rIdx) => (
+                  <tr key={rIdx} style={{ borderBottom: "1px solid #141414" }}>
+                    {Object.keys(r).map((col, cIdx) => (
+                      <td key={cIdx} style={{ padding: "8px 14px", color: cIdx === 0 ? "#ff4d3d" : "#cccccc" }}>
+                        {String(r[col])}
+                      </td>
+                    ))}
+                  </tr>
                 ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1314,13 +1638,30 @@ export default function AIChatWorkspace({ onOpenSqlModal, showNotification }) {
   };
 
   const createRelationalTurn = async (prompt, ctx, isFollowUp) => {
-    const isHr = prompt.toLowerCase().includes("hr") || prompt.toLowerCase().includes("employee");
+    const pLower = prompt.toLowerCase();
+    const isHealthcare = pLower.includes("health") || pLower.includes("patient") || pLower.includes("doctor") || pLower.includes("hospital") || pLower.includes("clinic");
+    const isFintech = pLower.includes("fintech") || pLower.includes("bank") || pLower.includes("account") || pLower.includes("loan");
+    const isHr = pLower.includes("hr") || pLower.includes("employee") || pLower.includes("salary");
+    const isLogistics = pLower.includes("logistic") || pLower.includes("warehouse") || pLower.includes("shipment");
+    const isEducation = pLower.includes("school") || pLower.includes("university") || pLower.includes("student") || pLower.includes("course");
+
     const countMatch = prompt.match(/(\d+[\d,]*)/);
-    const countStr = countMatch ? countMatch[1] : (isHr ? "500" : "50,000");
-    const countNum = parseInt(countStr.replace(/,/g, ""), 10) || (isHr ? 500 : 50000);
+    const countStr = countMatch ? countMatch[1] : (isHealthcare ? "100" : isHr ? "500" : "50,000");
+    const countNum = parseInt(countStr.replace(/,/g, ""), 10) || (isHealthcare ? 100 : isHr ? 500 : 50000);
 
     let tables = null;
-    let dbDomain = isHr ? "hr" : "retail_ecommerce_dag";
+    let inferredSchema = null;
+    let dbDomain = isHealthcare
+      ? "healthcare"
+      : isFintech
+      ? "fintech"
+      : isHr
+      ? "hr"
+      : isLogistics
+      ? "logistics"
+      : isEducation
+      ? "education"
+      : "ecommerce";
     let totalRows = countNum;
 
     // Attempt backend generation first
@@ -1332,6 +1673,7 @@ export default function AIChatWorkspace({ onOpenSqlModal, showNotification }) {
       });
       if (inferRes.ok) {
         const spec = await inferRes.json();
+        inferredSchema = spec;
         const genRes = await fetch(`${API_BASE}/generate/relational`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1355,26 +1697,49 @@ export default function AIChatWorkspace({ onOpenSqlModal, showNotification }) {
 
     // Client-side fallback if tables empty
     if (!tables || Object.keys(tables).length === 0) {
-      if (isHr) {
+      if (isHealthcare) {
+        dbDomain = "healthcare";
+        tables = generateRealisticHealthcareTables(Math.min(countNum, 200));
+        inferredSchema = DOMAIN_PRESETS.healthcare;
+      } else if (isHr) {
         dbDomain = "hr";
         tables = generateRealisticHrTables(countNum);
+        inferredSchema = DOMAIN_PRESETS.hr;
+      } else if (isFintech) {
+        dbDomain = "fintech";
+        inferredSchema = DOMAIN_PRESETS.fintech;
+        const custs = generateRealisticCustomers(Math.min(countNum, 200));
+        const accts = custs.map((c, i) => ({
+          account_id: `ACC-100${i + 1}`,
+          customer_id: c.customer_id,
+          account_type: i % 2 === 0 ? "Checking" : "Savings",
+          balance: 5000 + ((i * 3241) % 45000),
+          opened_date: "2024-03-15",
+          status: "ACTIVE",
+        }));
+        const txns = accts.slice(0, 100).flatMap((a, idx) => [
+          { txn_id: `TXN-${idx * 2 + 1}`, account_id: a.account_id, txn_date: "2026-09-01", amount: 4500.0, txn_type: "CREDIT", running_balance: a.balance },
+          { txn_id: `TXN-${idx * 2 + 2}`, account_id: a.account_id, txn_date: "2026-09-05", amount: 120.5, txn_type: "DEBIT", running_balance: a.balance - 120.5 },
+        ]);
+        tables = { customers: custs, accounts: accts, transactions: txns };
       } else {
-        dbDomain = "retail_ecommerce_dag";
+        dbDomain = "ecommerce";
+        inferredSchema = DOMAIN_PRESETS.ecommerce;
         tables = {
           customers: generateRealisticCustomers(Math.min(countNum, 200)),
           orders: [
-            { order_id: "ORD-901", customer_id: 2001, order_date: "2026-09-02", total_amount: 1420.50, status: "COMPLETED" },
-            { order_id: "ORD-902", customer_id: 2002, order_date: "2026-09-05", total_amount: 890.00, status: "COMPLETED" },
-            { order_id: "ORD-903", customer_id: 2003, order_date: "2026-09-12", total_amount: 3200.00, status: "PROCESSING" },
+            { order_id: "ORD-901", customer_id: 2001, order_date: "2026-09-02", total_amount: 1420.5, status: "COMPLETED" },
+            { order_id: "ORD-902", customer_id: 2002, order_date: "2026-09-05", total_amount: 890.0, status: "COMPLETED" },
+            { order_id: "ORD-903", customer_id: 2003, order_date: "2026-09-12", total_amount: 3200.0, status: "PROCESSING" },
           ],
           order_items: [
-            { item_id: "ITM-01", order_id: "ORD-901", product_id: "PRD-501", quantity: 2, unit_price: 450.00 },
-            { item_id: "ITM-02", order_id: "ORD-901", product_id: "PRD-503", quantity: 1, unit_price: 520.50 },
-            { item_id: "ITM-03", order_id: "ORD-902", product_id: "PRD-502", quantity: 1, unit_price: 890.00 },
+            { item_id: "ITM-01", order_id: "ORD-901", product_id: "PRD-501", quantity: 2, unit_price: 450.0 },
+            { item_id: "ITM-02", order_id: "ORD-901", product_id: "PRD-503", quantity: 1, unit_price: 520.5 },
+            { item_id: "ITM-03", order_id: "ORD-902", product_id: "PRD-502", quantity: 1, unit_price: 890.0 },
           ],
           products: [
-            { product_id: "PRD-501", name: "Cloud Enterprise Gateway", category: "Infrastructure", price: 450.00, stock: 120 },
-            { product_id: "PRD-502", name: "Synthetic DAG Engine Pro", category: "Developer Tools", price: 890.00, stock: 45 },
+            { product_id: "PRD-501", name: "Cloud Enterprise Gateway", category: "Infrastructure", price: 450.0, stock: 120 },
+            { product_id: "PRD-502", name: "Synthetic DAG Engine Pro", category: "Developer Tools", price: 890.0, stock: 45 },
           ],
         };
       }
@@ -1386,8 +1751,8 @@ export default function AIChatWorkspace({ onOpenSqlModal, showNotification }) {
     }
 
     const explanationText = isFollowUp
-      ? `Recognizing the previously generated **${ctx.primaryDatasetName || "parent"}** dataset, I have generated related child tables linked with 100% referential integrity and zero orphan keys.`
-      : `Generated a relational **${dbDomain} DAG schema** consisting of ${Object.keys(tables).length} normalized tables with primary keys, foreign key constraints, and zero orphan records.`;
+      ? `Recognizing the previously generated **${ctx.primaryDatasetName || "parent"}** dataset, I have synthesized related child tables linked with 100% referential integrity and zero orphan keys.`
+      : `Generated a relational **${dbDomain} DAG schema** consisting of ${Object.keys(tables).length} normalized tables with primary keys, foreign key constraints, and verified zero orphan records.`;
 
     return {
       id: Date.now() + 1,
@@ -1401,6 +1766,7 @@ export default function AIChatWorkspace({ onOpenSqlModal, showNotification }) {
         dbName: dbDomain,
         tableCounts: tableCounts,
         tables: tables,
+        schema: inferredSchema || DOMAIN_PRESETS[dbDomain] || DOMAIN_PRESETS.ecommerce,
       },
     };
   };
