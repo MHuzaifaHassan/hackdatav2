@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import CloakLogo from "../landing/CloakLogo";
 import AIChatWorkspace from "./AIChatWorkspace";
 import TabularGeneratorView from "./TabularGeneratorView";
@@ -7,6 +7,15 @@ import DocumentGeneratorView from "./DocumentGeneratorView";
 import DataProfilerView from "./DataProfilerView";
 import DataTesterView from "./DataTesterView";
 import SqlConsoleModal from "./SqlConsoleModal";
+import {
+  HistoryView,
+  DatasetsCatalogView,
+  DocumentsCatalogView,
+  RelationalCatalogView,
+  TemplatesView,
+  SettingsView,
+} from "./WorkspaceViews";
+import { ALL_DOMAINS, getStoredDatasets, getStoredRelationalSchemas, getStoredDocuments } from "./workspaceStorage";
 import { IconSearch, IconBell } from "./Icons";
 
 export default function WorkspaceLayout({
@@ -18,12 +27,13 @@ export default function WorkspaceLayout({
   const [currentView, setCurrentView] = useState(activeView);
   const [searchQuery, setSearchQuery] = useState("");
   const [showSqlModal, setShowSqlModal] = useState(false);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
 
   const navSections = [
     {
       heading: "WORKSPACE",
       items: [
-        { id: "ai_chat", label: "AI Workspace", badge: "PRIMARY" },
+        { id: "ai_chat", label: "AI Workspace", badge: "CHATGPT" },
       ],
     },
     {
@@ -35,18 +45,21 @@ export default function WorkspaceLayout({
       ],
     },
     {
+      heading: "STORAGE & REPOSITORY",
+      items: [
+        { id: "history", label: "History (Audit Log)" },
+        { id: "datasets", label: "Generated Datasets" },
+        { id: "documents_catalog", label: "Generated Documents" },
+        { id: "relational_schemas", label: "Relational Schemas" },
+        { id: "templates", label: "Domain Templates (14)" },
+      ],
+    },
+    {
       heading: "ANALYZE & TEST",
       items: [
         { id: "profiler", label: "Data Profiler" },
         { id: "tester", label: "Data Tester" },
-      ],
-    },
-    {
-      heading: "EXPLORE",
-      items: [
-        { id: "overview", label: "Overview" },
-        { id: "datasets", label: "Datasets Catalog" },
-        { id: "settings", label: "Settings" },
+        { id: "settings", label: "Platform Settings" },
       ],
     },
   ];
@@ -60,6 +73,43 @@ export default function WorkspaceLayout({
     if (onNavigateView) onNavigateView(id);
   };
 
+  // Search indexing across datasets, schemas, documents, and templates
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    const results = [];
+
+    // Datasets
+    getStoredDatasets().forEach((d) => {
+      if (d.name?.toLowerCase().includes(q) || d.domain?.toLowerCase().includes(q)) {
+        results.push({ type: "Dataset", label: d.name, sub: `${d.rowCount?.toLocaleString()} rows • ${d.domain}`, view: "datasets" });
+      }
+    });
+
+    // Relational
+    getStoredRelationalSchemas().forEach((s) => {
+      if (s.name?.toLowerCase().includes(q) || s.domain?.toLowerCase().includes(q)) {
+        results.push({ type: "Relational Schema", label: s.name, sub: `${s.tablesCount} tables • ${s.domain}`, view: "relational_schemas" });
+      }
+    });
+
+    // Documents
+    getStoredDocuments().forEach((doc) => {
+      if (doc.title?.toLowerCase().includes(q) || doc.type?.toLowerCase().includes(q)) {
+        results.push({ type: "Document Batch", label: doc.title, sub: `${doc.count} docs • ${doc.type}`, view: "documents_catalog" });
+      }
+    });
+
+    // Templates
+    ALL_DOMAINS.forEach((tmpl) => {
+      if (tmpl.label?.toLowerCase().includes(q) || tmpl.desc?.toLowerCase().includes(q)) {
+        results.push({ type: "Domain Template", label: `${tmpl.icon} ${tmpl.label}`, sub: tmpl.desc, view: "templates" });
+      }
+    });
+
+    return results.slice(0, 6);
+  }, [searchQuery]);
+
   return (
     <div
       style={{
@@ -72,29 +122,59 @@ export default function WorkspaceLayout({
       }}
     >
       {/* ========================================================================= */}
-      {/* 1. SIDEBAR (Exact Screenshot 1-5 Replica)                                  */}
+      {/* 1. SIDEBAR                                                                */}
       {/* ========================================================================= */}
       <aside
         style={{
-          width: "240px",
-          minWidth: "240px",
+          width: "250px",
+          minWidth: "250px",
           backgroundColor: "#080808",
           borderRight: "1px solid #181818",
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
-          padding: "24px 0",
+          padding: "20px 0",
           userSelect: "none",
+          overflowY: "auto",
         }}
       >
         <div>
           {/* Logo Brand in Sidebar */}
-          <div style={{ padding: "0 24px 28px 24px" }}>
+          <div style={{ padding: "0 22px 18px 22px" }}>
             <CloakLogo size={22} wordmarkSize="15px" />
           </div>
 
+          {/* "+ New Generation" CTA Button */}
+          <div style={{ padding: "0 18px 18px 18px" }}>
+            <button
+              onClick={() => handleSelectView("ai_chat")}
+              style={{
+                width: "100%",
+                backgroundColor: "#ff2a1a",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "6px",
+                padding: "10px 14px",
+                fontSize: "12px",
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                cursor: "pointer",
+                boxShadow: "0 2px 12px rgba(255, 42, 26, 0.35)",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#ff4438")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "#ff2a1a")}
+            >
+              <span style={{ fontSize: "16px", lineHeight: "1" }}>+</span>
+              <span>New Generation</span>
+            </button>
+          </div>
+
           {/* Navigation Sections */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
             {navSections.map((sec, sIdx) => (
               <div key={sIdx}>
                 {sec.heading && (
@@ -104,8 +184,8 @@ export default function WorkspaceLayout({
                       fontSize: "10px",
                       color: "#444444",
                       letterSpacing: "0.12em",
-                      padding: "0 24px",
-                      marginBottom: "8px",
+                      padding: "0 22px",
+                      marginBottom: "6px",
                       textTransform: "uppercase",
                     }}
                   >
@@ -113,7 +193,7 @@ export default function WorkspaceLayout({
                   </div>
                 )}
 
-                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
                   {sec.items.map((item) => {
                     const isActive = currentView === item.id;
                     return (
@@ -121,7 +201,7 @@ export default function WorkspaceLayout({
                         key={item.id}
                         onClick={() => handleSelectView(item.id)}
                         style={{
-                          padding: "8px 24px",
+                          padding: "7px 22px",
                           fontSize: "13px",
                           fontWeight: isActive ? 700 : 500,
                           color: isActive ? "#ffffff" : "#888888",
@@ -147,6 +227,21 @@ export default function WorkspaceLayout({
                         }}
                       >
                         <span>{item.label}</span>
+                        {item.badge && (
+                          <span
+                            style={{
+                              fontSize: "9px",
+                              backgroundColor: "rgba(255, 42, 26, 0.15)",
+                              color: "#ff4d3d",
+                              padding: "1px 5px",
+                              borderRadius: "3px",
+                              fontFamily: "monospace",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {item.badge}
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -157,7 +252,7 @@ export default function WorkspaceLayout({
         </div>
 
         {/* Sidebar Footer: Back to Platform Website */}
-        <div style={{ padding: "0 20px" }}>
+        <div style={{ padding: "16px 18px 0 18px", borderTop: "1px solid #141414" }}>
           <button
             onClick={onReturnToPlatform}
             style={{
@@ -165,7 +260,7 @@ export default function WorkspaceLayout({
               backgroundColor: "#0d0d0d",
               border: "1px solid #222222",
               borderRadius: "4px",
-              padding: "10px 14px",
+              padding: "9px 12px",
               color: "#aaaaaa",
               fontSize: "11px",
               fontWeight: 600,
@@ -196,7 +291,7 @@ export default function WorkspaceLayout({
       {/* 2. MAIN WORKSPACE CONTENT AREA                                            */}
       {/* ========================================================================= */}
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {/* Topbar (Exact Screenshot 1-5 Replica) */}
+        {/* Topbar */}
         <header
           style={{
             height: "64px",
@@ -206,54 +301,106 @@ export default function WorkspaceLayout({
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
+            position: "relative",
           }}
         >
-          {/* Search Bar with ⌘K Badge */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              backgroundColor: "#0f0f0f",
-              border: "1px solid #222222",
-              borderRadius: "4px",
-              padding: "7px 14px",
-              width: "360px",
-            }}
-          >
-            <IconSearch size={14} color="#666666" />
-            <input
-              type="text"
-              placeholder="Search datasets, runs, schemas"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+          {/* Search Bar with ⌘K Badge and Live Results */}
+          <div style={{ position: "relative" }}>
+            <div
               style={{
-                backgroundColor: "transparent",
-                border: "none",
-                outline: "none",
-                color: "#ffffff",
-                fontSize: "12px",
-                width: "100%",
-                fontFamily: "var(--cd-font-sans)",
-              }}
-            />
-            <span
-              style={{
-                fontFamily: "var(--cd-font-mono)",
-                fontSize: "10px",
-                color: "#666666",
-                border: "1px solid #282828",
-                borderRadius: "3px",
-                padding: "2px 5px",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                backgroundColor: "#0f0f0f",
+                border: isSearchFocused ? "1px solid #ff2a1a" : "1px solid #222222",
+                borderRadius: "4px",
+                padding: "7px 14px",
+                width: "360px",
+                transition: "border-color 0.15s ease",
               }}
             >
-              ⌘K
-            </span>
+              <IconSearch size={14} color="#666666" />
+              <input
+                type="text"
+                placeholder="Search datasets, schemas, documents, templates..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={() => setIsSearchFocused(true)}
+                onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
+                style={{
+                  backgroundColor: "transparent",
+                  border: "none",
+                  outline: "none",
+                  color: "#ffffff",
+                  fontSize: "12px",
+                  width: "100%",
+                  fontFamily: "var(--cd-font-sans)",
+                }}
+              />
+              <span
+                style={{
+                  fontFamily: "var(--cd-font-mono)",
+                  fontSize: "10px",
+                  color: "#666666",
+                  border: "1px solid #282828",
+                  borderRadius: "3px",
+                  padding: "2px 5px",
+                }}
+              >
+                ⌘K
+              </span>
+            </div>
+
+            {/* Live Search Quick Results Dropdown */}
+            {isSearchFocused && searchResults.length > 0 && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "115%",
+                  left: 0,
+                  width: "380px",
+                  backgroundColor: "#0d0d0d",
+                  border: "1px solid #282828",
+                  borderRadius: "6px",
+                  boxShadow: "0 12px 30px rgba(0,0,0,0.85)",
+                  zIndex: 200,
+                  overflow: "hidden",
+                }}
+              >
+                <div style={{ padding: "6px 12px", fontSize: "10px", fontFamily: "monospace", color: "#666", borderBottom: "1px solid #1a1a1a" }}>
+                  MATCHING WORKSPACE ENTITIES
+                </div>
+                {searchResults.map((res, i) => (
+                  <div
+                    key={i}
+                    onClick={() => {
+                      handleSelectView(res.view);
+                      setSearchQuery("");
+                      if (showNotification) showNotification(`Opened ${res.type}: ${res.label}`);
+                    }}
+                    style={{
+                      padding: "8px 12px",
+                      cursor: "pointer",
+                      borderBottom: "1px solid #141414",
+                      transition: "background 0.15s ease",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#161616")}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: "13px", fontWeight: 700, color: "#ffffff" }}>{res.label}</span>
+                      <span style={{ fontSize: "10px", color: "#ff4d3d", fontFamily: "monospace" }}>{res.type}</span>
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#888888", marginTop: "2px" }}>{res.sub}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Right Topbar Elements (Status Badge, Bell, Avatar) */}
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-            {/* Quick SQL Editor Button (Screenshot 1 Replica) */}
+            {/* Quick SQL Editor Button */}
             <button
               onClick={() => setShowSqlModal(true)}
               title="Open SQL Editor"
@@ -285,7 +432,7 @@ export default function WorkspaceLayout({
               <span>SQL EDITOR</span>
             </button>
 
-            {/* Workspace Online Badge (Exact Screenshot Replica) */}
+            {/* Workspace Online Badge */}
             <div
               style={{
                 backgroundColor: "rgba(16, 185, 129, 0.08)",
@@ -299,65 +446,72 @@ export default function WorkspaceLayout({
                 display: "flex",
                 alignItems: "center",
                 gap: "6px",
-                letterSpacing: "0.08em",
               }}
             >
-              <span style={{ fontSize: "8px" }}>●</span>
-              <span>WORKSPACE ONLINE</span>
+              <span
+                style={{
+                  width: "6px",
+                  height: "6px",
+                  backgroundColor: "#10b981",
+                  borderRadius: "50%",
+                  display: "inline-block",
+                  boxShadow: "0 0 8px #10b981",
+                }}
+              />
+              <span>WORKSPACE ACTIVE</span>
             </div>
 
             {/* Notification Bell */}
-            <button
-              onClick={() => showNotification && showNotification("All 4 background generation pipelines idle & ready.")}
-              style={{
-                background: "none",
-                border: "none",
-                color: "#888888",
-                fontSize: "15px",
-                cursor: "pointer",
-                padding: "4px",
-              }}
-              title="Notifications"
-            >
-              <IconBell size={16} color="#888888" />
-            </button>
-
-            {/* User Profile Avatar (Exact Screenshot Replica: 'AR') */}
             <div
+              onClick={() => showNotification && showNotification("Notification stream up-to-date")}
               style={{
-                width: "30px",
-                height: "30px",
-                borderRadius: "50%",
-                backgroundColor: "#1f1f1f",
-                border: "1px solid #333333",
-                color: "#ffffff",
-                fontFamily: "var(--cd-font-mono)",
-                fontSize: "11px",
-                fontWeight: 700,
+                width: "32px",
+                height: "32px",
+                borderRadius: "4px",
+                border: "1px solid #222222",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 cursor: "pointer",
+                color: "#888888",
               }}
-              title="Ayesha Raza (Admin)"
             >
-              AR
+              <IconBell size={15} />
+            </div>
+
+            {/* User Avatar */}
+            <div
+              style={{
+                width: "32px",
+                height: "32px",
+                borderRadius: "50%",
+                backgroundColor: "#ff2a1a",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 700,
+                fontSize: "12px",
+                color: "#ffffff",
+                boxShadow: "0 2px 8px rgba(255, 42, 26, 0.3)",
+              }}
+            >
+              CD
             </div>
           </div>
         </header>
 
-        {/* Dynamic View Container */}
+        {/* View Content Area */}
         <div
           style={{
             flex: 1,
-            overflowY: currentView === "ai_chat" ? "hidden" : "auto",
-            padding: currentView === "ai_chat" ? "0" : "28px 36px",
-            height: "calc(100vh - 64px)",
+            overflowY: "auto",
+            padding: "24px 32px",
+            backgroundColor: "#050505",
           }}
         >
           {currentView === "ai_chat" && (
             <AIChatWorkspace
-              onOpenSqlModal={() => setShowSqlModal(true)}
+              onNavigateView={handleSelectView}
               showNotification={showNotification}
             />
           )}
@@ -389,6 +543,43 @@ export default function WorkspaceLayout({
 
           {currentView === "tester" && (
             <DataTesterView showNotification={showNotification} />
+          )}
+
+          {currentView === "history" && (
+            <HistoryView
+              onReopenItem={(item) => {
+                const t = item.generatorType?.toLowerCase();
+                if (t === "relational") handleSelectView("relational");
+                else if (t === "document") handleSelectView("documents");
+                else handleSelectView("tabular");
+              }}
+              showNotification={showNotification}
+            />
+          )}
+
+          {currentView === "datasets" && (
+            <DatasetsCatalogView
+              onSelectDataset={() => handleSelectView("tabular")}
+              showNotification={showNotification}
+            />
+          )}
+
+          {currentView === "documents_catalog" && (
+            <DocumentsCatalogView showNotification={showNotification} />
+          )}
+
+          {currentView === "relational_schemas" && (
+            <RelationalCatalogView showNotification={showNotification} />
+          )}
+
+          {currentView === "templates" && (
+            <TemplatesView
+              onApplyTemplate={() => handleSelectView("tabular")}
+            />
+          )}
+
+          {currentView === "settings" && (
+            <SettingsView showNotification={showNotification} />
           )}
 
           {currentView === "overview" && (
@@ -448,99 +639,6 @@ export default function WorkspaceLayout({
                   <h3 style={{ fontSize: "18px", fontWeight: 700, margin: "8px 0" }}>Data Tester Suite →</h3>
                   <p style={{ fontSize: "12px", color: "#888888" }}>Run 6-point verification & quality audit.</p>
                 </div>
-              </div>
-            </div>
-          )}
-
-          {currentView === "datasets" && (
-            <div>
-              <div style={{ fontFamily: "var(--cd-font-mono)", fontSize: "11px", color: "#666666", marginBottom: "4px" }}>
-                WORKSPACE / DATASETS
-              </div>
-              <h2 style={{ fontSize: "28px", fontWeight: 800, color: "#ffffff", marginBottom: "24px" }}>
-                Synthetic Datasets Catalog
-              </h2>
-              <div style={{ backgroundColor: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "4px", overflow: "hidden" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--cd-font-mono)", fontSize: "12px" }}>
-                  <thead>
-                    <tr style={{ borderBottom: "1px solid #1c1c1c", color: "#666666" }}>
-                      <th style={{ padding: "12px 20px" }}>DATASET</th>
-                      <th style={{ padding: "12px 20px" }}>TYPE</th>
-                      <th style={{ padding: "12px 20px" }}>ROWS</th>
-                      <th style={{ padding: "12px 20px" }}>STATUS</th>
-                      <th style={{ padding: "12px 20px" }}>ACTION</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      { name: "customers_synthetic", type: "Tabular", rows: "250,000", status: "VALIDATED" },
-                      { name: "retail_db (orders + payments)", type: "Relational DAG", rows: "500,000", status: "VERIFIED" },
-                      { name: "fintech_banking_dag", type: "Relational DAG", rows: "1,200,000", status: "VERIFIED" },
-                      { name: "customer_invoices_reconciled", type: "Documents", rows: "5,000", status: "READY" },
-                    ].map((d, i) => (
-                      <tr key={i} style={{ borderBottom: "1px solid #141414" }}>
-                        <td style={{ padding: "14px 20px", color: "#ffffff", fontWeight: 700 }}>{d.name}</td>
-                        <td style={{ padding: "14px 20px", color: "#888888" }}>{d.type}</td>
-                        <td style={{ padding: "14px 20px", color: "#ff2a1a" }}>{d.rows}</td>
-                        <td style={{ padding: "14px 20px", color: "#10b981" }}>● {d.status}</td>
-                        <td style={{ padding: "14px 20px" }}>
-                          <button
-                            onClick={() => handleSelectView("tabular")}
-                            style={{
-                              backgroundColor: "#161616",
-                              border: "1px solid #282828",
-                              color: "#cccccc",
-                              padding: "4px 10px",
-                              borderRadius: "3px",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Inspect
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {currentView === "settings" && (
-            <div style={{ maxWidth: "680px" }}>
-              <div style={{ fontFamily: "var(--cd-font-mono)", fontSize: "11px", color: "#666666", marginBottom: "4px" }}>
-                WORKSPACE / SETTINGS
-              </div>
-              <h2 style={{ fontSize: "28px", fontWeight: 800, color: "#ffffff", marginBottom: "24px" }}>
-                Platform Settings
-              </h2>
-              <div style={{ backgroundColor: "#0d0d0d", border: "1px solid #1c1c1c", borderRadius: "4px", padding: "24px", display: "flex", flexDirection: "column", gap: "20px" }}>
-                <div>
-                  <label style={{ fontSize: "11px", color: "#666666", fontFamily: "var(--cd-font-mono)", display: "block", marginBottom: "8px" }}>
-                    BACKEND ENGINE URL
-                  </label>
-                  <input
-                    type="text"
-                    defaultValue="http://127.0.0.1:8000"
-                    style={{ width: "100%", padding: "10px", backgroundColor: "#080808", border: "1px solid #282828", color: "#ffffff", fontFamily: "var(--cd-font-mono)", fontSize: "13px" }}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: "11px", color: "#666666", fontFamily: "var(--cd-font-mono)", display: "block", marginBottom: "8px" }}>
-                    DEFAULT LOCALE & CURRENCY
-                  </label>
-                  <input
-                    type="text"
-                    defaultValue="en_US (USD) / en_PK (PKR)"
-                    style={{ width: "100%", padding: "10px", backgroundColor: "#080808", border: "1px solid #282828", color: "#ffffff", fontFamily: "var(--cd-font-mono)", fontSize: "13px" }}
-                  />
-                </div>
-                <button
-                  onClick={() => showNotification && showNotification("Settings saved successfully")}
-                  style={{ alignSelf: "flex-start", backgroundColor: "#ff2a1a", color: "#ffffff", border: "none", padding: "10px 24px", borderRadius: "4px", fontWeight: 700, cursor: "pointer" }}
-                >
-                  Save Settings
-                </button>
               </div>
             </div>
           )}
