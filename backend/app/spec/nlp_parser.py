@@ -1,6 +1,14 @@
 import re
 from typing import Optional, Tuple, Dict, Any, List
-from backend.app.spec.models import DomainSpec, TableSpec, RelationSpec
+from backend.app.spec.models import (
+    ColumnSpec,
+    ColumnType,
+    ColumnsQuantitySpec,
+    DomainSpec,
+    QuantitiesSpec,
+    RelationSpec,
+    TableSpec,
+)
 
 WORD_NUMBERS: Dict[str, int] = {
     "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
@@ -307,10 +315,85 @@ def parse_column_prompt(prompt: str) -> Dict[str, Any]:
 
 
 
+def extract_quantities_contract(query: str, spec: Optional[DomainSpec] = None) -> QuantitiesSpec:
+    """
+    Parses quantities block (rows, columns, documents) from user query as required by Plan v2 contract.
+    """
+    quantities = QuantitiesSpec()
+    if not query:
+        return quantities
+    q_lower = query.lower()
+
+    # 1. Documents: e.g. "50 bank statements", "200 invoices", "10 lab reports", "5 discharge summaries"
+    doc_matches = re.finditer(r"\b(\d+)\s+([a-z_]+)\b", q_lower)
+    for m in doc_matches:
+        num = int(m.group(1))
+        word = m.group(2).rstrip("s")
+        if word in ("statement", "bank_statement"):
+            quantities.documents["bank_statement"] = num
+        elif word in ("invoice", "bill"):
+            quantities.documents["invoice"] = num
+        elif word in ("lab_report", "lab", "test"):
+            quantities.documents["lab_report"] = num
+        elif word in ("discharge_summary", "discharge"):
+            quantities.documents["discharge_summary"] = num
+        elif word in ("claim", "insurance_claim"):
+            quantities.documents["insurance_claim"] = num
+
+    # 2. Rows: e.g. "5000 customers", "50000 transactions", "500 employees"
+    entity_counts = extract_entity_counts(query)
+    for ent, cnt in entity_counts.items():
+        if ent not in ("columns", "statements", "invoices", "bills", "documents", "reports"):
+            quantities.rows[ent] = cnt
+
+    # General row count if specified: e.g. "5000 rows"
+    row_match = re.search(r"\b(\d+)\s+(?:rows?|records?|entries)\b", q_lower)
+    if row_match:
+        target_cnt = int(row_match.group(1))
+        if spec and spec.tables:
+            quantities.rows[spec.tables[0].name] = target_cnt
+        else:
+            quantities.rows["default"] = target_cnt
+
+    # 3. Columns: e.g. "12 columns", "exactly 12 columns", "columns: amount, merchant, timestamp, city, is_fraud"
+    col_cnt_match = re.search(r"\b(?:exactly\s+)?(\d+)\s+columns?\b", q_lower)
+    exact_cols = int(col_cnt_match.group(1)) if col_cnt_match else None
+
+    # Required column list:
+    req_cols: List[str] = []
+    req_match = re.search(r"(?:columns?|with|required|fields):\s*([a-zA-Z0-9_,\s]+)", query, re.IGNORECASE)
+    if req_match:
+        raw_list = req_match.group(1).split(",")
+        for item in raw_list:
+            clean = re.sub(r"[^a-zA-Z0-9_]", "", item.strip().lower())
+            if clean and clean not in ("and", "or", "with", "columns", "rows"):
+                req_cols.append(clean)
+
+    target_table_name = None
+    if spec and spec.tables:
+        for t in spec.tables:
+            t_low = t.name.lower()
+            if t_low in q_lower or t_low.rstrip("s") in q_lower:
+                target_table_name = t.name
+                break
+        if not target_table_name:
+            target_table_name = spec.tables[0].name
+    else:
+        target_table_name = "default"
+
+    if exact_cols is not None or req_cols:
+        quantities.columns[target_table_name] = ColumnsQuantitySpec(
+            exact_count=exact_cols,
+            required=req_cols
+        )
+
+    return quantities
+
+
 def parse_query_request(query: str, base_spec: Optional[DomainSpec] = None) -> Dict[str, Any]:
     """
-    Comprehensive query parser for Feature 1:
-    Extracts domain, locale, currency, entity row counts, columns, and constraints.
+    Comprehensive query parser for Feature 1 & Plan v2:
+    Extracts domain, locale, currency, entity row counts, columns, quantities contract, and constraints.
     Returns a structured summary dictionary that the UI can display in a 'Parsed request' modal.
     """
     from backend.app.domains.packs import get_domain_pack
@@ -341,10 +424,9 @@ def parse_query_request(query: str, base_spec: Optional[DomainSpec] = None) -> D
 
     # 4. Extract Entity Counts & General Count
     entity_counts = extract_entity_counts(query)
-    general_count, default_applied, default_note = extract_query_size(query)
     constraints = extract_constraints(query)
 
-    # 5. Scale spec based on entity counts
+    # 5. Scale spec based on entity counts & quantities contract
     scaled_spec = scale_domain_spec_to_query(spec, query, entity_counts=entity_counts)
 
     row_counts = {t.name: t.rows for t in scaled_spec.tables}
@@ -361,6 +443,7 @@ def parse_query_request(query: str, base_spec: Optional[DomainSpec] = None) -> D
         "default_applied": scaled_spec.default_applied,
         "default_note": scaled_spec.default_note,
         "requested_rows": scaled_spec.requested_rows,
+        "quantities": scaled_spec.quantities.model_dump(),
         "total_rows": total_rows,
         "row_counts": row_counts,
         "constraints": constraints,
@@ -386,7 +469,7 @@ def scale_domain_spec_to_query(
     entity_counts: Optional[Dict[str, int]] = None
 ) -> DomainSpec:
     """
-    Identifies primary and related tables, applying exact entity counts or general scaled ratios.
+    Identifies primary and related tables, applying exact entity counts, quantities contracts, or general scaled ratios.
     """
     target_rows, default_applied, default_note = extract_query_size(query)
     if entity_counts is None:
@@ -405,6 +488,10 @@ def scale_domain_spec_to_query(
     if not spec.tables:
         return spec
 
+    # Parse and attach quantities contract
+    quantities = extract_quantities_contract(query, spec=spec)
+    spec.quantities = quantities
+
     # Check if any explicit entity count matches a table
     matched_entity_tables: Dict[str, int] = {}
     for t in spec.tables:
@@ -416,7 +503,16 @@ def scale_domain_spec_to_query(
         elif (t_name + "s") in entity_counts:
             matched_entity_tables[t.name] = entity_counts[t_name + "s"]
 
-    # If specific entity was requested (e.g. 16 invoices), honor it
+    # Also apply from quantities.rows
+    for t_name, count in quantities.rows.items():
+        if spec.get_table(t_name):
+            matched_entity_tables[t_name] = count
+        elif spec.get_table(t_name.rstrip("s")):
+            matched_entity_tables[t_name.rstrip("s")] = count
+        elif spec.get_table(t_name + "s"):
+            matched_entity_tables[t_name + "s"] = count
+
+    # If specific entity was requested, honor it
     if matched_entity_tables:
         for t_name, count in matched_entity_tables.items():
             t = spec.get_table(t_name)
@@ -434,7 +530,6 @@ def scale_domain_spec_to_query(
                     ratio = rel.ratio or 1.0
                     child_t.rows = max(1, int(round(parent_count * ratio)))
             elif rel.child in matched_entity_tables and rel.parent not in matched_entity_tables:
-                # If child is known (e.g. 16 invoices), parent (customers) can be derived 1:1 or appropriate size
                 child_count = matched_entity_tables[rel.child]
                 parent_t = spec.get_table(rel.parent)
                 if parent_t:
@@ -444,7 +539,6 @@ def scale_domain_spec_to_query(
                         ratio = rel.ratio or 1.0
                         parent_t.rows = max(1, int(round(child_count / ratio))) if ratio > 0 else child_count
 
-        # Second pass: for any remaining tables that are children of derived parents (e.g., salaries/attendance/leave_requests when employees was matched)
         for rel in spec.relations:
             parent_t = spec.get_table(rel.parent)
             child_t = spec.get_table(rel.child)
@@ -452,7 +546,7 @@ def scale_domain_spec_to_query(
                 ratio = rel.ratio or 1.0
                 child_t.rows = max(1, int(round(parent_t.rows * ratio)))
 
-        return spec
+        return _enforce_column_quantities(spec, quantities)
 
     # Default scaling when no specific entity count was matched:
     child_table_names = {rel.child for rel in spec.relations}
@@ -507,5 +601,87 @@ def scale_domain_spec_to_query(
             child_t.rows = max(1, int(round(parent_rows * avg_c)))
         else:
             child_t.rows = max(1, int(round(parent_rows * 2.0)))
+
+    return _enforce_column_quantities(spec, quantities)
+
+
+def _enforce_column_quantities(spec: DomainSpec, quantities: QuantitiesSpec) -> DomainSpec:
+    """Enforces exact column count and required column presence with exact names."""
+    if not quantities or not quantities.columns:
+        return spec
+
+    for t_name, col_rule in quantities.columns.items():
+        t = spec.get_table(t_name)
+        if not t and (t_name == "default" or len(spec.tables) == 1):
+            t = spec.tables[0]
+        if not t:
+            for cand in spec.tables:
+                if cand.name.lower() in t_name.lower() or t_name.lower() in cand.name.lower():
+                    t = cand
+                    break
+        if not t and spec.tables:
+            t = spec.tables[0]
+
+        if not t:
+            continue
+
+        existing_cols = {c.name.lower(): c for c in t.columns}
+
+        # 1. Enforce required columns exist with exact requested names
+        for req in col_rule.required:
+            if req not in existing_cols:
+                inferred = parse_column_prompt(req)
+                new_c = ColumnSpec(
+                    name=req,
+                    type=inferred["type"],
+                    min=inferred.get("min"),
+                    max=inferred.get("max")
+                )
+                t.columns.append(new_c)
+                existing_cols[req] = new_c
+
+        # 2. Enforce exact column count if specified
+        if col_rule.exact_count is not None:
+            target_count = col_rule.exact_count
+            domain_fillers = [
+                ("status", ColumnType.CATEGORY, ["Active", "Completed", "Pending"]),
+                ("description", ColumnType.TEXT_PLACEHOLDER, None),
+                ("category", ColumnType.CATEGORY, ["Standard", "Premium", "Enterprise"]),
+                ("created_at", ColumnType.DATETIME, None),
+                ("updated_at", ColumnType.DATETIME, None),
+                ("notes", ColumnType.TEXT_PLACEHOLDER, None),
+                ("priority", ColumnType.CATEGORY, ["Low", "Medium", "High"]),
+                ("reference_code", ColumnType.ID, None),
+                ("is_active", ColumnType.BOOLEAN, None),
+                ("score", ColumnType.FLOAT, None),
+                ("tag", ColumnType.CATEGORY, ["TagA", "TagB", "TagC"]),
+                ("channel", ColumnType.CATEGORY, ["Web", "Mobile", "API"]),
+                ("region", ColumnType.CITY, None),
+            ]
+            f_idx = 0
+            while len(t.columns) < target_count:
+                fname, ftype, fvals = domain_fillers[f_idx % len(domain_fillers)]
+                cname = fname if fname not in existing_cols else f"{fname}_{f_idx + 1}"
+                if cname not in existing_cols:
+                    new_col = ColumnSpec(name=cname, type=ftype, values=fvals)
+                    t.columns.append(new_col)
+                    existing_cols[cname] = new_col
+                f_idx += 1
+
+            if len(t.columns) > target_count:
+                kept = []
+                pk = t.get_pk_column()
+                if pk:
+                    kept.append(pk)
+                req_set = set(col_rule.required)
+                for c in t.columns:
+                    if c.name.lower() in req_set and c not in kept:
+                        kept.append(c)
+                for c in t.columns:
+                    if len(kept) >= target_count:
+                        break
+                    if c not in kept:
+                        kept.append(c)
+                t.columns = kept[:target_count]
 
     return spec

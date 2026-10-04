@@ -1,3 +1,4 @@
+import math
 import random
 from typing import Any, Dict, List, Optional
 import pandas as pd
@@ -45,9 +46,14 @@ class DocumentEngine:
         transactions = data.get("transactions", pd.DataFrame()).to_dict(orient="records")
 
         docs = []
-        for i in range(min(count, len(accounts))):
-            acc = accounts[i]
-            cust = next((c for c in customers if c.get("customer_id") == acc.get("customer_id")), customers[0] if customers else {})
+        if not accounts:
+            accounts = [{"account_id": f"ACC-{1000 + j}", "customer_id": f"CUST-{1000 + j}", "account_type": "Checking Account"} for j in range(count)]
+        if not customers:
+            customers = [{"customer_id": acc.get("customer_id", f"CUST-{1000 + j}"), "full_name": f"Customer {j+1}", "email": f"user{j+1}@example.com", "phone": "+1-555-0100"} for j, acc in enumerate(accounts)]
+
+        for i in range(count):
+            acc = accounts[i % len(accounts)]
+            cust = next((c for c in customers if c.get("customer_id") == acc.get("customer_id")), customers[i % len(customers)])
             acc_txns = [t for t in transactions if t.get("account_id") == acc.get("account_id")]
             if not acc_txns and transactions:
                 acc_txns = transactions[:5]
@@ -60,7 +66,17 @@ class DocumentEngine:
             total_debits = 0.0
 
             for t in acc_txns[:10]:
-                amt = float(t.get("amount", 50.0))
+                raw_amt = t.get("amount")
+                if raw_amt is None or (isinstance(raw_amt, float) and math.isnan(raw_amt)):
+                    amt = round(rng.uniform(15.0, 250.0), 2)
+                else:
+                    try:
+                        amt = float(raw_amt)
+                        if math.isnan(amt) or amt <= 0:
+                            amt = round(rng.uniform(15.0, 250.0), 2)
+                    except (ValueError, TypeError):
+                        amt = round(rng.uniform(15.0, 250.0), 2)
+                amt = round(amt, 2)
                 ttype = str(t.get("txn_type", "debit")).lower()
                 is_credit = ttype == "credit" or "deposit" in str(t.get("description", "")).lower()
 

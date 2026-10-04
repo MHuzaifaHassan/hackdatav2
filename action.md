@@ -93,3 +93,48 @@
 - [x] All 42/42 tests pass green (`.venv\Scripts\pytest backend/tests/ -v`)
 - [x] Backend running on `http://127.0.0.1:8000`
 - [x] Frontend running on `http://127.0.0.1:5173`
+
+---
+
+## Plan v2 Execution
+
+### Initial Baseline Test Run
+- Full pytest suite executed: 48/48 tests passed (100% green, 74.40s)
+- Download validation test suite executed: All 3 live API acceptance tests passed
+- Standalone demos (`demo_fintech.py`, `demo_healthcare.py`, `demo_ecommerce.py`) executed and verified
+- Git repository initialized and baseline checkpoint committed (`c5703cf`)
+
+### Phase 1A: Exact Quantity Guarantee — Code Audit Findings (Section 0.B.1)
+1. **Child Counts in Relational Engine (`backend/app/engines/relational.py`)**:
+   - In `generate_relational()` (lines 154-160), when `primary_rel.child_count` is defined, `counts_per_parent` samples from Poisson or Uniform distribution and sets `child_rows = len(fk_assignments)`. It never reconciles or scales the total child count to match the requested `table_spec.rows`. This causes child tables (e.g., transactions, lab reports, order items) to generate a random count differing from the user's requested quantity.
+2. **Document Engine Account Clamping (`backend/app/documents/generator.py`)**:
+   - In `_generate_bank_statements()` (line 48), the loop uses `for i in range(min(count, len(accounts))):`. If the user requests 50 bank statements but the accounts table only has 10 accounts, it generates only 10 statements and silently drops the remaining 40.
+   - In `LangGraphDocumentGenerator` (`backend/app/documents/graph.py`), documents are generated once per attempt and there is no replacement loop or progress counter to accumulate valid documents until exact count N is reached.
+3. **NLP Parser & Quantity Contract (`backend/app/spec/nlp_parser.py` & `models.py`)**:
+   - `extract_query_size()` uses `\b(\d+)\b` indiscriminately; if the user says "5000 rows and 12 columns", it risks matching 12 or 5000 without separating rows vs columns.
+   - There is no parsing for requested column counts ("12 columns") or required column lists ("these specific columns").
+   - `DomainSpec` lacks a dedicated `quantities` contract schema (`QuantitiesSpec`).
+4. **Unique Constraint and Impossible Quantity Handling (`backend/app/engines/tabular.py`)**:
+   - When unique constraints are applied on categorical domains with finite cardinality (e.g. 5000 unique values from 300 possible values), the engine loops or repeats without throwing a structured `ImpossibleQuantityError` reporting `requested vs possible`.
+5. **Over-generate and Trim**:
+   - Tabular engine does not over-generate candidates (`ceil(N * 1.2)`) and trim to N when downstream filters, deduplication, or edge case nulls could impact exact row counts.
+### Phase 1A: Exact Quantity Guarantee — Implementation & Test Gate PASSED
+- [x] Created `backend/app/spec/errors.py`: Defined `ImpossibleQuantityError` (requested vs possible reporting).
+- [x] Updated `backend/app/spec/models.py`: Added `ColumnsQuantitySpec`, `QuantitiesSpec`, and attached `quantities` to `DomainSpec`.
+- [x] Updated `backend/app/spec/nlp_parser.py`:
+  - Added `extract_quantities_contract(query, spec)` to parse row, column, and document quantities.
+  - Implemented `_enforce_column_quantities()` to ensure required columns exist with exact names and table column count matches `exact_count`.
+- [x] Updated `backend/app/engines/relational.py`:
+  - Reconciled child count distributions (Poisson/Uniform) strictly to `table_spec.rows`.
+  - Proportional scaling, fractional remainder distribution, and zero orphan FK guarantee maintained.
+- [x] Updated `backend/app/engines/tabular.py`:
+  - Added impossible quantity validation for categorical/boolean unique constraints.
+  - Added post-generation trimming and exact row count assertion.
+- [x] Updated `backend/app/documents/generator.py`:
+  - Removed `min(count, len(accounts))` clamping in bank statement generation.
+  - Sanitized null/NaN transaction amounts preventing balance calculation failures.
+- [x] Updated `backend/app/documents/graph.py`:
+  - Implemented document replacement loop guaranteeing exactly N valid documents and PDFs.
+- [x] Added `backend/tests/test_quantity_guarantee.py`: 11 tests verifying all requirements in 0.B.5.
+- [x] Phase 1A Test Gate: All 59 tests PASSED (100% green).
+- [x] All 3 standalone demos (`demo_fintech.py`, `demo_healthcare.py`, `demo_ecommerce.py`) generate exact requested quantities and pass.

@@ -152,11 +152,59 @@ class RelationalEngine:
                         # Fraction ratio (e.g. 0.5 for leave requests)
                         fk_assignments = rng.choice(parent_pks, size=child_rows, replace=(child_rows > n_parents))
                 elif primary_rel.child_count:
-                    # Child count distribution
-                    counts_per_parent = self.sample_child_counts(
+                    # Child count distribution reconciled strictly to table_spec.rows
+                    target_child_rows = table_spec.rows
+                    raw_counts = self.sample_child_counts(
                         n_parents, primary_rel.child_count, rng
-                    )
+                    ).astype(float)
+                    current_sum = float(np.sum(raw_counts))
+                    if current_sum <= 0:
+                        raw_counts = np.ones(n_parents, dtype=float)
+                        current_sum = float(n_parents)
+
+                    # Proportional scaling
+                    scaled = raw_counts * (target_child_rows / current_sum)
+                    counts_per_parent = np.floor(scaled).astype(int)
+                    min_c = getattr(primary_rel.child_count, "min", 1) if hasattr(primary_rel.child_count, "min") else 1
+                    if target_child_rows >= n_parents * min_c:
+                        counts_per_parent = np.maximum(counts_per_parent, min_c)
+
+                    diff = target_child_rows - int(np.sum(counts_per_parent))
+                    if diff > 0:
+                        fractions = scaled - np.floor(scaled)
+                        order = np.argsort(-fractions)
+                        for idx in order[:min(diff, n_parents)]:
+                            counts_per_parent[idx] += 1
+                        remaining = diff - min(diff, n_parents)
+                        if remaining > 0:
+                            counts_per_parent += remaining // n_parents
+                            counts_per_parent[:(remaining % n_parents)] += 1
+                    elif diff < 0:
+                        to_sub = -diff
+                        order = np.argsort(scaled - np.floor(scaled))
+                        for idx in order:
+                            if to_sub <= 0:
+                                break
+                            reducible = max(0, counts_per_parent[idx] - (min_c if target_child_rows >= n_parents else 0))
+                            sub = min(to_sub, reducible)
+                            counts_per_parent[idx] -= sub
+                            to_sub -= sub
+                        if to_sub > 0:
+                            for idx in range(n_parents):
+                                if to_sub <= 0:
+                                    break
+                                if counts_per_parent[idx] > 0:
+                                    counts_per_parent[idx] -= 1
+                                    to_sub -= 1
+
                     fk_assignments = np.repeat(parent_pks, counts_per_parent)
+                    if len(fk_assignments) < target_child_rows:
+                        shortfall = target_child_rows - len(fk_assignments)
+                        extra = rng.choice(parent_pks, size=shortfall, replace=True)
+                        fk_assignments = np.concatenate([fk_assignments, extra])
+                    elif len(fk_assignments) > target_child_rows:
+                        fk_assignments = fk_assignments[:target_child_rows]
+
                     child_rows = len(fk_assignments)
                 else:
                     # Target row count from table spec with weighted sampling from parents

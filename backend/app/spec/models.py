@@ -193,6 +193,17 @@ class TableSpec(BaseModel):
         return None
 
 
+class ColumnsQuantitySpec(BaseModel):
+    exact_count: Optional[int] = None
+    required: List[str] = Field(default_factory=list)
+
+
+class QuantitiesSpec(BaseModel):
+    rows: Dict[str, int] = Field(default_factory=dict)
+    columns: Dict[str, ColumnsQuantitySpec] = Field(default_factory=dict)
+    documents: Dict[str, int] = Field(default_factory=dict)
+
+
 class DomainSpec(BaseModel):
     domain: str = "general"
     locale: str = "en_US"
@@ -202,6 +213,7 @@ class DomainSpec(BaseModel):
     relations: List[RelationSpec] = Field(default_factory=list)
     rules: List[str] = Field(default_factory=list)
     edge_cases: EdgeCasesSpec = Field(default_factory=EdgeCasesSpec)
+    quantities: QuantitiesSpec = Field(default_factory=QuantitiesSpec)
     default_applied: bool = False
     default_note: Optional[str] = None
     requested_rows: Optional[int] = None

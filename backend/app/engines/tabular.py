@@ -11,6 +11,7 @@ from faker import Faker
 from backend.app.engines.edgecases import EdgeCasesInjector
 from backend.app.engines.locales import LocaleManager
 from backend.app.engines.privacy import PrivacyEngine
+from backend.app.spec.errors import ImpossibleQuantityError
 from backend.app.spec.models import (
     ColumnSpec,
     ColumnType,
@@ -35,6 +36,28 @@ class TabularEngine:
         global_edge_cases: Optional[Any] = None
     ) -> pd.DataFrame:
         """Generates a Pandas DataFrame adhering strictly to TableSpec and seed."""
+        n_rows = table_spec.rows
+
+        # Validate feasibility (impossible constraint check)
+        for col in table_spec.columns:
+            if col.unique:
+                if col.type == ColumnType.CATEGORY and col.values:
+                    possible = len(col.values) if isinstance(col.values, (list, dict)) else 1
+                    if n_rows > possible:
+                        raise ImpossibleQuantityError(
+                            requested=n_rows,
+                            possible=possible,
+                            column=col.name,
+                            reason=f"Column '{col.name}' is constrained to unique but only has {possible} possible categorical values."
+                        )
+                elif col.type == ColumnType.BOOLEAN and n_rows > 2:
+                    raise ImpossibleQuantityError(
+                        requested=n_rows,
+                        possible=2,
+                        column=col.name,
+                        reason=f"Column '{col.name}' is boolean with unique constraint (maximum 2 possible values)."
+                    )
+
         rng = np.random.default_rng(seed)
         try:
             faker = Faker([self.locale, "en_US"])
@@ -42,7 +65,6 @@ class TabularEngine:
             faker = Faker("en_US")
         faker.seed_instance(seed)
 
-        n_rows = table_spec.rows
         data: Dict[str, Any] = {}
 
         # 1. First pass: Generate base columns (non-derived)
@@ -101,6 +123,9 @@ class TabularEngine:
             elif global_hash and any(k in col.name.lower() for k in ("secret", "token", "password", "ssn", "hash", "key", "auth", "credential", "card_number", "pin", "salt", "private")):
                 df[col.name] = PrivacyEngine.hash_sha256(df[col.name])
 
+        if len(df) > n_rows:
+            df = df.iloc[:n_rows].copy()
+        assert len(df) == n_rows, f"Exact row count guarantee failed: expected {n_rows}, got {len(df)}"
         return df
 
     def _generate_base_column(

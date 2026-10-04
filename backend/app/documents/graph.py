@@ -121,49 +121,77 @@ class LangGraphDocumentGenerator:
         state.narrated_docs = narrated
         return state
 
+    def _validate_single_doc(self, doc: Dict[str, Any]) -> List[str]:
+        doc_errors = []
+        if "financials" in doc:
+            fin = doc["financials"]
+            subtotal = fin.get("subtotal", 0.0)
+            tax = fin.get("tax_amount", 0.0)
+            expected_total = round(subtotal + tax, 2)
+            actual_total = fin.get("grand_total", 0.0)
+            if abs(expected_total - actual_total) > 0.01:
+                doc_errors.append(f"Invoice math mismatch: {expected_total} != {actual_total}")
+
+        if "account" in doc and doc["account"].get("closing_balance") is not None:
+            acc = doc["account"]
+            opening = acc.get("opening_balance", 0.0)
+            credits = acc.get("total_credits", 0.0)
+            debits = acc.get("total_debits", 0.0)
+            expected_closing = round(opening + credits - debits, 2)
+            actual_closing = acc.get("closing_balance", 0.0)
+            if abs(expected_closing - actual_closing) > 0.01:
+                doc_errors.append(f"Statement balance mismatch: {expected_closing} != {actual_closing}")
+
+        if "customer" in doc:
+            email = doc["customer"].get("email", "")
+            if "@" in email and not any(safe in email for safe in ["example", "test", "corp", "io"]):
+                doc_errors.append(f"Unsafe non-test email detected: {email}")
+
+        return doc_errors
+
     def node_validate(self, state: DocumentState) -> DocumentState:
-        """Node 6: Validates math reconciliation, date ordering, and PII safety rules."""
-        errors = []
+        """Node 6: Validates math reconciliation, date ordering, and PII safety rules with replacement guarantee."""
+        all_errors = []
+        valid_docs = []
         for doc in state.narrated_docs:
-            # 1. Invoice math check: subtotal + tax == grand_total (to the cent)
-            if "financials" in doc:
-                fin = doc["financials"]
-                subtotal = fin.get("subtotal", 0.0)
-                tax = fin.get("tax_amount", 0.0)
-                expected_total = round(subtotal + tax, 2)
-                actual_total = fin.get("grand_total", 0.0)
-                if abs(expected_total - actual_total) > 0.01:
-                    errors.append(f"Invoice math mismatch: {expected_total} != {actual_total}")
+            errs = self._validate_single_doc(doc)
+            if not errs:
+                valid_docs.append(doc)
+            else:
+                all_errors.extend(errs)
 
-            # 2. Bank statement math check: opening + credits - debits == closing
-            if "account" in doc and doc["account"].get("closing_balance") is not None:
-                acc = doc["account"]
-                opening = acc.get("opening_balance", 0.0)
-                credits = acc.get("total_credits", 0.0)
-                debits = acc.get("total_debits", 0.0)
-                expected_closing = round(opening + credits - debits, 2)
-                actual_closing = acc.get("closing_balance", 0.0)
-                if abs(expected_closing - actual_closing) > 0.01:
-                    errors.append(f"Statement balance mismatch: {expected_closing} != {actual_closing}")
+        # Replacement loop: if some docs failed, regenerate replacements until exact count is met
+        replace_seed = state.seed + 500
+        attempts = 0
+        while len(valid_docs) < state.count and attempts < 10:
+            attempts += 1
+            needed = state.count - len(valid_docs)
+            replacements = DocumentEngine.generate_documents(
+                doc_type=state.doc_type,
+                domain_spec=state.domain_spec,
+                count=needed,
+                seed=replace_seed + attempts
+            )
+            for r_doc in replacements:
+                errs = self._validate_single_doc(r_doc)
+                if not errs:
+                    valid_docs.append(r_doc)
+                    if len(valid_docs) == state.count:
+                        break
 
-            # 3. PII check: ensure emails use example.com / test domains
-            if "customer" in doc:
-                email = doc["customer"].get("email", "")
-                if "@" in email and not any(safe in email for safe in ["example", "test", "corp", "io"]):
-                    errors.append(f"Unsafe non-test email detected: {email}")
-
-        if not errors:
+        state.narrated_docs = valid_docs[:state.count]
+        if len(state.narrated_docs) == state.count:
             state.validation_passed = True
             state.validation_errors = []
         else:
             state.validation_passed = False
-            state.validation_errors = errors
+            state.validation_errors = all_errors
 
         return state
 
     def node_render(self, state: DocumentState) -> DocumentState:
         """Node 7: Renders valid documents to PDF byte streams and final payload."""
-        state.rendered_docs = state.narrated_docs
+        state.rendered_docs = state.narrated_docs[:state.count]
         rendered_pdfs = []
         for doc in state.rendered_docs:
             pdf_bytes = PDFDocumentRenderer.render_pdf(doc)
