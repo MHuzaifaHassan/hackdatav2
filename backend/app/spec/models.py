@@ -217,6 +217,7 @@ class DomainSpec(BaseModel):
     default_applied: bool = False
     default_note: Optional[str] = None
     requested_rows: Optional[int] = None
+    fallback_used: bool = False
 
     @field_validator("tables")
     @classmethod

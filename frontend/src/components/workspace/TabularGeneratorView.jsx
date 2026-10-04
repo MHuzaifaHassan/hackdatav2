@@ -224,46 +224,58 @@ export default function TabularGeneratorView({ onOpenSql, showNotification }) {
   };
 
   // Natural Language Domain Description to Schema
-  const handleInferCustomDomain = () => {
+  const [parsedSpecJson, setParsedSpecJson] = useState(null);
+  const [showDebugSpec, setShowDebugSpec] = useState(false);
+
+  const handleInferCustomDomain = async () => {
     if (!customPrompt.trim()) return;
     setIsGenerating(true);
-    setTimeout(() => {
-      // Intelligently infer columns from keywords
-      const p = customPrompt.toLowerCase();
-      const generatedCols = [
-        { name: "record_id", type: "id", constraint: "unique", unique: true, nullable: false, distribution: "REC-XXXXX" },
-      ];
+    try {
+      const response = await fetch("http://127.0.0.1:8000/spec/infer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: customPrompt })
+      });
+      if (!response.ok) throw new Error("Failed to infer spec");
+      const data = await response.json();
+      
+      console.log("Parsed DomainSpec:", data);
+      setParsedSpecJson(JSON.stringify(data, null, 2));
 
-      if (p.includes("patient") || p.includes("hospital") || p.includes("clinical")) {
-        generatedCols.push(
-          { name: "patient_name", type: "person_name", constraint: "realistic", unique: false, nullable: false, distribution: "Names" },
-          { name: "diagnosis_code", type: "category", constraint: "ICD-10", unique: false, nullable: false, distribution: "ICD-10 Diagnostic Codes" },
-          { name: "severity_score", type: "integer", constraint: "1 - 10", unique: false, nullable: false, distribution: "Poisson (λ=4.2)" },
-          { name: "admission_date", type: "date", constraint: "2024 - 2026", unique: false, nullable: false, distribution: "Uniform Dates" }
-        );
-      } else if (p.includes("finance") || p.includes("bank") || p.includes("transaction") || p.includes("fraud")) {
-        generatedCols.push(
-          { name: "account_number", type: "id", constraint: "unique", unique: true, nullable: false, distribution: "IBAN Mask" },
-          { name: "amount", type: "float", constraint: "> 0", unique: false, nullable: false, distribution: "Log-Normal" },
-          { name: "fraud_score", type: "float", constraint: "0.00 - 1.00", unique: false, nullable: false, distribution: "Beta (α=1, β=15)" },
-          { name: "merchant_category", type: "category", constraint: "Retail, Food, Tech", unique: false, nullable: false, distribution: "Categorical" }
-        );
-      } else {
-        generatedCols.push(
-          { name: "entity_name", type: "string", constraint: "not null", unique: false, nullable: false, distribution: "Realistic Entities" },
-          { name: "status", type: "category", constraint: "Active, Pending, Closed", unique: false, nullable: false, distribution: "Categorical Weights" },
-          { name: "metric_value", type: "float", constraint: ">= 0", unique: false, nullable: false, distribution: "Normal (μ=120, σ=30)" },
-          { name: "created_at", type: "date", constraint: "past 2 years", unique: false, nullable: false, distribution: "Uniform Timestamps" }
-        );
+      // Check if fallback was used
+      if (data.fallback_used) {
+         if (showNotification) showNotification(`Warning: LLM generation failed, fell back to domain pack!`);
       }
 
+      // Map backend columns to frontend columns
+      const generatedCols = [];
+      const primaryTable = data.tables[0];
+      if (primaryTable && primaryTable.columns) {
+         primaryTable.columns.forEach((col) => {
+            generatedCols.push({
+               name: col.name,
+               type: col.type,
+               constraint: col.unique ? "unique" : "not null",
+               unique: col.unique || false,
+               nullable: col.nullable || false,
+               distribution: col.type === "category" ? "Categorical" : "Auto",
+            });
+         });
+      }
+      
+      setDatasetName(primaryTable ? primaryTable.name : "custom_synthetic_data");
+      setNumRows(primaryTable ? primaryTable.rows : 100);
       setColumns(generatedCols);
       setPreviewRows(generateRealisticSampleRows(generatedCols, 12));
       setSelectedDomain("custom");
-      setDatasetName("custom_synthetic_data");
+      
+      if (showNotification) showNotification(`Generated ${generatedCols.length} schema columns from API for: "${customPrompt}"`);
+    } catch (err) {
+      console.error(err);
+      if (showNotification) showNotification("API Error: Failed to parse query");
+    } finally {
       setIsGenerating(false);
-      if (showNotification) showNotification(`Generated ${generatedCols.length} intelligent schema columns for: "${customPrompt}"`);
-    }, 600);
+    }
   };
 
   // Add Column Modal Submit
@@ -723,6 +735,24 @@ ${previewRows.map((r) => `  (${columns.map((c) => (typeof r[c.name] === "number"
           AI Infer Schema →
         </button>
       </div>
+
+      {parsedSpecJson && (
+        <div style={{ marginBottom: "20px" }}>
+           <button 
+             onClick={() => setShowDebugSpec(!showDebugSpec)}
+             style={{
+               backgroundColor: "#111", border: "1px solid #333", color: "#aaa", padding: "4px 8px", fontSize: "11px", cursor: "pointer", borderRadius: "4px"
+             }}
+           >
+             {showDebugSpec ? "Hide Generated Spec" : "View Generated Spec (Debug)"}
+           </button>
+           {showDebugSpec && (
+             <pre style={{ backgroundColor: "#060606", padding: "12px", border: "1px solid #222", borderRadius: "4px", marginTop: "8px", color: "#56b5b5", fontSize: "11px", overflowX: "auto" }}>
+               {parsedSpecJson}
+             </pre>
+           )}
+        </div>
+      )}
 
       {/* Main Grid: Left Controls (1fr) + Right Live Preview Table (1.4fr) */}
       <div

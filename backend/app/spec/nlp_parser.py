@@ -238,6 +238,18 @@ def parse_column_prompt(prompt: str) -> Dict[str, Any]:
         result["type"] = "id"
     elif any(k in p_lower for k in ["boolean", "bool", "flag", "is_"]):
         result["type"] = "boolean"
+    elif any(k in p_lower for k in ["disease", "diagnosis", "condition", "icd10", "icd_10", "illness", "disorder", "symptom"]):
+        result["type"] = "category"
+        from backend.app.engines.text_fill import DOMAIN_VOCABULARIES
+        icd_list = DOMAIN_VOCABULARIES.get("healthcare", {}).get("icd10", [])
+        if icd_list:
+            result["values"] = {d: round(1.0 / len(icd_list), 4) for d in icd_list}
+    elif any(k in p_lower for k in ["merchant", "store", "vendor", "retailer"]):
+        result["type"] = "category"
+        from backend.app.engines.text_fill import DOMAIN_VOCABULARIES
+        m_list = DOMAIN_VOCABULARIES.get("fintech", {}).get("merchants", [])
+        if m_list:
+            result["values"] = {m: round(1.0 / len(m_list), 4) for m in m_list}
     elif any(k in p_lower for k in ["category", "enum", "status", "segment", "type of", "options", "values"]):
         result["type"] = "category"
     elif any(k in p_lower for k in ["integer", "int", "count", "quantity", "age", "years"]):
@@ -361,16 +373,26 @@ def extract_quantities_contract(query: str, spec: Optional[DomainSpec] = None) -
 
     # Required column list:
     req_cols: List[str] = []
-    req_match = re.search(r"(?:columns?|with|required|fields):\s*([a-zA-Z0-9_,\s]+)", query, re.IGNORECASE)
+    req_match = re.search(r"(?:columns?|with|required|fields):\s*([^.]+)", query, re.IGNORECASE)
     if req_match:
-        raw_list = req_match.group(1).split(",")
+        raw_string = req_match.group(1).replace(" and ", ",")
+        raw_list = raw_string.split(",")
         for item in raw_list:
-            clean = re.sub(r"[^a-zA-Z0-9_]", "", item.strip().lower())
-            if clean and clean not in ("and", "or", "with", "columns", "rows"):
+            clean = item.strip()
+            if clean and clean.lower() not in ("and", "or", "with", "columns", "rows", "exactly"):
                 req_cols.append(clean)
 
     target_table_name = None
-    if spec and spec.tables:
+    explicit_table = re.search(r"\btable(?:\s+name)?(?:\s*[:=]|\s+is)?\s+([a-zA-Z0-9_]+)", q_lower)
+    if explicit_table:
+        cand = explicit_table.group(1).strip()
+        if cand == "name":
+            after_match = re.search(r"\btable\s+name(?:\s*[:=]|\s+is)?\s+([a-zA-Z0-9_]+)", q_lower)
+            if after_match:
+                cand = after_match.group(1).strip()
+        if cand and cand not in ("with", "has", "of", "for", "name"):
+            target_table_name = cand
+    elif spec and spec.tables:
         for t in spec.tables:
             t_low = t.name.lower()
             if t_low in q_lower or t_low.rstrip("s") in q_lower:
@@ -546,7 +568,7 @@ def scale_domain_spec_to_query(
                 ratio = rel.ratio or 1.0
                 child_t.rows = max(1, int(round(parent_t.rows * ratio)))
 
-        return _enforce_column_quantities(spec, quantities)
+        return _enforce_column_quantities(spec, quantities, query)
 
     # Default scaling when no specific entity count was matched:
     child_table_names = {rel.child for rel in spec.relations}
@@ -605,7 +627,7 @@ def scale_domain_spec_to_query(
     return _enforce_column_quantities(spec, quantities)
 
 
-def _enforce_column_quantities(spec: DomainSpec, quantities: QuantitiesSpec) -> DomainSpec:
+def _enforce_column_quantities(spec: DomainSpec, quantities: QuantitiesSpec, query: str = "") -> DomainSpec:
     """Enforces exact column count and required column presence with exact names."""
     if not quantities or not quantities.columns:
         return spec
@@ -614,74 +636,91 @@ def _enforce_column_quantities(spec: DomainSpec, quantities: QuantitiesSpec) -> 
         t = spec.get_table(t_name)
         if not t and (t_name == "default" or len(spec.tables) == 1):
             t = spec.tables[0]
+            # Rename to match explicit user request if there's only one table
+            if t_name != "default":
+                t.name = t_name
         if not t:
             for cand in spec.tables:
                 if cand.name.lower() in t_name.lower() or t_name.lower() in cand.name.lower():
                     t = cand
+                    t.name = t_name  # override with exact name
                     break
         if not t and spec.tables:
             t = spec.tables[0]
+            t.name = t_name
 
         if not t:
             continue
 
         existing_cols = {c.name.lower(): c for c in t.columns}
+        new_columns = []
 
-        # 1. Enforce required columns exist with exact requested names
+        # 1. Enforce required columns exist with exact requested names, in order
         for req in col_rule.required:
-            if req not in existing_cols:
-                inferred = parse_column_prompt(req)
+            inferred = parse_column_prompt(req)
+            col_name = inferred["name"].lower()
+            if col_name in existing_cols:
+                # Keep existing but update properties if inferred
+                c = existing_cols[col_name]
+                if inferred.get("unique"): c.unique = True
+                if inferred.get("type") != "float": c.type = ColumnType(inferred["type"])
+                if inferred.get("values"): c.values = inferred["values"]
+                new_columns.append(c)
+            else:
                 new_c = ColumnSpec(
-                    name=req,
-                    type=inferred["type"],
+                    name=col_name,
+                    type=ColumnType(inferred["type"]),
                     min=inferred.get("min"),
-                    max=inferred.get("max")
+                    max=inferred.get("max"),
+                    unique=inferred.get("unique", False),
+                    nullable=inferred.get("nullable", False),
+                    values=inferred.get("values"),
                 )
-                t.columns.append(new_c)
-                existing_cols[req] = new_c
+                if inferred.get("dist") and inferred["dist"] != "uniform":
+                    from backend.app.spec.models import DistributionType
+                    try:
+                        new_c.dist = DistributionType(inferred["dist"])
+                        new_c.params = inferred.get("params", {})
+                    except ValueError:
+                        pass
+                new_columns.append(new_c)
 
-        # 2. Enforce exact column count if specified
+        # 2. Fill remaining or trim if exact_count is specified
         if col_rule.exact_count is not None:
             target_count = col_rule.exact_count
+            
+            # If we need more columns, add fillers
             domain_fillers = [
-                ("status", ColumnType.CATEGORY, ["Active", "Completed", "Pending"]),
+                ("status", ColumnType.CATEGORY, {"Active": 0.5, "Pending": 0.5}),
                 ("description", ColumnType.TEXT_PLACEHOLDER, None),
-                ("category", ColumnType.CATEGORY, ["Standard", "Premium", "Enterprise"]),
+                ("category", ColumnType.CATEGORY, {"Standard": 0.5, "Premium": 0.5}),
                 ("created_at", ColumnType.DATETIME, None),
-                ("updated_at", ColumnType.DATETIME, None),
-                ("notes", ColumnType.TEXT_PLACEHOLDER, None),
-                ("priority", ColumnType.CATEGORY, ["Low", "Medium", "High"]),
-                ("reference_code", ColumnType.ID, None),
-                ("is_active", ColumnType.BOOLEAN, None),
-                ("score", ColumnType.FLOAT, None),
-                ("tag", ColumnType.CATEGORY, ["TagA", "TagB", "TagC"]),
-                ("channel", ColumnType.CATEGORY, ["Web", "Mobile", "API"]),
-                ("region", ColumnType.CITY, None),
             ]
             f_idx = 0
-            while len(t.columns) < target_count:
+            while len(new_columns) < target_count:
                 fname, ftype, fvals = domain_fillers[f_idx % len(domain_fillers)]
-                cname = fname if fname not in existing_cols else f"{fname}_{f_idx + 1}"
-                if cname not in existing_cols:
-                    new_col = ColumnSpec(name=cname, type=ftype, values=fvals)
-                    t.columns.append(new_col)
-                    existing_cols[cname] = new_col
+                cname = fname if not any(c.name.lower() == fname for c in new_columns) else f"{fname}_{f_idx + 1}"
+                if not any(c.name.lower() == cname for c in new_columns):
+                    new_columns.append(ColumnSpec(name=cname, type=ftype, values=fvals))
                 f_idx += 1
-
-            if len(t.columns) > target_count:
-                kept = []
-                pk = t.get_pk_column()
-                if pk:
-                    kept.append(pk)
-                req_set = set(col_rule.required)
-                for c in t.columns:
-                    if c.name.lower() in req_set and c not in kept:
-                        kept.append(c)
-                for c in t.columns:
-                    if len(kept) >= target_count:
-                        break
-                    if c not in kept:
-                        kept.append(c)
-                t.columns = kept[:target_count]
+                
+            # If we have too many, trim down to exact_count (keep the ones we just added from requirements)
+            t.columns = new_columns[:target_count]
+            
+            # If a single table was explicitly requested with exact columns, drop other tables
+            is_single_table_prompt = (
+                (query and re.search(rf"\btable(?:\s+name)?(?:\s*[:=]|\s+is)?\s+{re.escape(t.name)}\b", query, re.IGNORECASE))
+                or (len(quantities.columns) == 1 and (col_rule.exact_count is not None or "tabular" in query.lower()))
+            )
+            if is_single_table_prompt:
+                spec.tables = [t]
+                spec.relations = []
+        else:
+            # If no exact count, just prepend required columns and keep existing
+            for c in t.columns:
+                if not any(nc.name.lower() == c.name.lower() for nc in new_columns):
+                    new_columns.append(c)
+            t.columns = new_columns
 
     return spec
+

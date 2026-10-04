@@ -19,6 +19,9 @@ from backend.app.spec.infer import SpecInferenceEngine
 from backend.app.spec.models import DomainSpec, TableSpec
 from backend.app.spec.nlp_parser import parse_query_request, parse_column_prompt
 
+import logging
+logger = logging.getLogger(__name__)
+
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
@@ -89,8 +92,10 @@ async def infer_domain_spec(payload: Dict[str, str]) -> DomainSpec:
     if not prompt:
         raise HTTPException(status_code=400, detail="Field 'prompt' is required.")
 
+    logger.info(f"[DEBUG Spec Inference] Received prompt: '{prompt}'")
     llm = get_llm_provider()
     spec = await SpecInferenceEngine.infer_from_prompt(prompt, llm=llm)
+    logger.info(f"[DEBUG Spec Inference] Generated DomainSpec: {spec.model_dump_json(indent=2)}")
     return spec
 
 

@@ -205,8 +205,23 @@ class DataExporter:
                 else:
                     lines.append(f"    {p_clean} ||--o{{ {c_clean} : \"references\"")
         else:
-            for t_name in tables_data:
-                lines.append(f"    {t_name.upper()} {{}}")
+            lines.append("    %% No relationships (single table)")
+            
+        for t_name, df in tables_data.items():
+            lines.append(f"    {t_name.upper()} {{")
+            t_spec = domain_spec.get_table(t_name) if domain_spec else None
+            for col in df.columns:
+                c_spec = None
+                if t_spec:
+                    for c in t_spec.columns:
+                        if c.name == col:
+                            c_spec = c
+                            break
+                sql_type = c_spec.type.value.replace(" ", "_") if c_spec else "text"
+                pk_marker = " PK" if c_spec and c_spec.pk else ""
+                fk_marker = " FK" if c_spec and not c_spec.pk and (c_spec.name.endswith("_id") or getattr(c_spec, "fk", False)) else ""
+                lines.append(f"        {sql_type} {col}{pk_marker}{fk_marker}")
+            lines.append("    }")
         lines.append("```")
         lines.append("")
 

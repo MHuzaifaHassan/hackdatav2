@@ -182,7 +182,7 @@ class TextFillEngine:
                     ]
 
             # Healthcare diagnoses and drugs
-            elif lower_col in ("diagnosis", "icd10", "icd_10", "condition"):
+            elif lower_col in ("diagnosis", "icd10", "icd_10", "condition", "disease"):
                 res_df[col] = [self.get_realistic_icd10(rng) for _ in range(len(res_df))]
             elif lower_col in ("drug", "medication", "prescription", "rx"):
                 res_df[col] = [self.get_realistic_drug(rng) for _ in range(len(res_df))]

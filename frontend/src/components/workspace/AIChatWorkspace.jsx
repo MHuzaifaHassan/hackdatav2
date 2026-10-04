@@ -1549,6 +1549,8 @@ export default function AIChatWorkspace({ onOpenSqlModal, showNotification }) {
     let columns = [];
     let rows = [];
     let primaryName = isEmployee ? "employees" : "customers_synthetic";
+    let parsedDomain = isEmployee ? "hr" : "retail";
+    let inferredSpec = null;
 
     // Attempt backend generation first
     try {
@@ -1566,6 +1568,8 @@ export default function AIChatWorkspace({ onOpenSqlModal, showNotification }) {
         });
         if (genRes.ok) {
           const genData = await genRes.json();
+          inferredSpec = genData;
+          parsedDomain = genData.domain || spec.domain || parsedDomain;
           const targetKey = Object.keys(genData.tables || {}).find((k) =>
             isEmployee ? k === "employees" : true
           ) || Object.keys(genData.tables || {})[0];
@@ -1628,7 +1632,8 @@ export default function AIChatWorkspace({ onOpenSqlModal, showNotification }) {
       newTables: { [primaryName]: rows },
       data: {
         datasetName: primaryName,
-        domain: isEmployee ? "hr" : "retail",
+        domain: parsedDomain,
+        schema: inferredSpec,
         rowCount: actualCountStr,
         columnCount: columns.length || Object.keys(rows[0] || {}).length,
         columns: columns.length ? columns : Object.keys(rows[0] || {}).map((c) => ({ name: c, type: "text", constraint: "verified" })),

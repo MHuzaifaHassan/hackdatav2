@@ -88,7 +88,7 @@ class TabularEngine:
             null_rate = col.null_rate
             if null_rate is None and global_edge_cases:
                 null_rate = getattr(global_edge_cases, "null_rate", 0.0)
-            if null_rate and null_rate > 0.0 and not col.pk:
+            if null_rate and null_rate > 0.0 and not col.pk and not col.unique:
                 df[col.name] = EdgeCasesInjector.inject_nulls(df[col.name], null_rate, rng)
 
             # Outlier rate

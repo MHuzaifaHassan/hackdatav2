@@ -41,6 +41,31 @@ class MockLLMProvider(BaseLLMProvider):
 
         prompt_lower = prompt.lower()
 
+        if "generate a json dict to patch" in prompt_lower:
+            if "fraud" in prompt_lower or "target rate" in prompt_lower or "auc" in prompt_lower:
+                return {
+                    "tables": {
+                        "transactions": {
+                            "columns": [
+                                {
+                                    "name": "is_fraud",
+                                    "type": "category",
+                                    "values": {"1": 0.02, "0": 0.98}
+                                }
+                            ]
+                        }
+                    }
+                }
+            return {"edge_cases": {"null_rate": 0.05}}
+
+        if "evaluate this specific success criterion" in prompt_lower:
+            return {
+                "passed": "fail" not in prompt_lower,
+                "reason": "Mock LLM evaluation",
+                "observed": "Mock observation",
+                "expected": "Mock expectation"
+            }
+
         # Keyword-based mock domain generation
         if "hospital" in prompt_lower or "patient" in prompt_lower or "health" in prompt_lower or "clinic" in prompt_lower:
             from backend.app.domains.packs import get_domain_pack

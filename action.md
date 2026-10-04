@@ -138,3 +138,84 @@
 - [x] Added `backend/tests/test_quantity_guarantee.py`: 11 tests verifying all requirements in 0.B.5.
 - [x] Phase 1A Test Gate: All 59 tests PASSED (100% green).
 - [x] All 3 standalone demos (`demo_fintech.py`, `demo_healthcare.py`, `demo_ecommerce.py`) generate exact requested quantities and pass.
+
+### Bug 0.C: Additional Bug Fixes
+- [x] **BUG 1: User-specified columns are ignored.** User-named columns must override default templates and exact column counts must be enforced.
+- [x] **BUG 2: Wrong schema export.** SQL schema must be generated from the CURRENT spec and named appropriately (not hardcoded to retail_schema.sql), containing only the current tables/columns.
+- [x] **BUG 3: ERD / Relational view.** ERD must be built from the CURRENT spec, showing even single tables with no relationships, and must not leak tables/columns from other projects or default schemas.
+
+### Bug 0.C Investigation Findings (Documented BEFORE Code Changes)
+
+Prompt investigated:
+`"Generate a tabular dataset of exactly 500 rows. Table name: patients. Exactly 2 columns: customer_id (unique) and disease..."`
+
+#### 1. Debug Output & Exact Spec Built
+- **Backend Logging**: Added structured logging (`logger.info`) in `backend/app/main.py` at `/spec/infer` and `backend/app/spec/infer.py` to output the exact `DomainSpec` JSON representation constructed from the user's prompt.
+- **UI "View Generated Spec" Panel**: In the frontend (`App.jsx` and `TabularGeneratorView.jsx`), a dedicated, collapsible/modal "View Generated Spec" panel will render the raw `DomainSpec` JSON returned from the backend.
+- **Exact DomainSpec JSON currently produced for this prompt**:
+  ```json
+  {
+    "domain": "healthcare",
+    "locale": "en_US",
+    "currency": "USD",
+    "seed": 42,
+    "tables": [
+      {
+        "name": "name",
+        "rows": 500,
+        "columns": [
+          { "name": "customer_id", "type": "id", "unique": true },
+          { "name": "disease", "type": "category" }
+        ]
+      }
+    ],
+    "relations": [],
+    "rules": [],
+    "edge_cases": { "null_rate": 0.0, "outlier_rate": 0.0 },
+    "quantities": {
+      "rows": { "patients": 500 },
+      "columns": { "name": { "exact_count": 2, "required": ["customer_id (unique)", "disease"] } }
+    },
+    "default_applied": false,
+    "fallback_used": true
+  }
+  ```
+- **Key Spec Bug Discovered**: In `backend/app/spec/nlp_parser.py`, `explicit_table = re.search(r"\btable\s+([a-zA-Z0-9_]+)", q_lower)` matched `"table name"`, causing the table name to become `"name"` instead of `"patients"`. In the previously running server (started before restart), `col_rule` failed to match `patients`, which kept `healthcare.yaml`'s default columns: `patient_id` and `full_name`.
+
+#### 2. Path Tracing: UI Prompt Box -> API Request Body -> Backend Handler -> Spec Builder
+- **UI Prompt Box**:
+  - Found in `frontend/src/App.jsx` (`<textarea value={inputPrompt}>`) and `frontend/src/components/workspace/TabularGeneratorView.jsx` (`<input value={customPrompt}>`).
+  - When submitted, `cleanPrompt` is passed directly in the HTTP POST body: `JSON.stringify({ prompt: cleanPrompt })`.
+  - **Confirmation**: The exact prompt text reaches the backend verbatim; it is NOT overwritten by dropdown presets or UI defaults before sending.
+- **API Request Body & Handler**:
+  - `POST /spec/infer` in `backend/app/main.py`: Receives `{"prompt": "..."}`.
+  - Passes prompt directly to `SpecInferenceEngine.infer_from_prompt(prompt, llm=llm)`.
+- **Spec Builder**:
+  - `SpecInferenceEngine` queries LLM. If `MockLLMProvider` is active (or offline/fallback), keyword detection matches `"patient"` and loads `healthcare.yaml`.
+  - `scale_domain_spec_to_query(spec, prompt)` is called to scale rows and enforce column contracts.
+
+#### 3. Keyword / Domain-Pack Matching & Column Override Guarantee
+- **Root Cause**:
+  - In `nlp_parser.py`, `r"\btable\s+([a-zA-Z0-9_]+)"` extracted `"name"` from `"Table name: patients"`.
+  - Because `t = spec.get_table("name")` was null, `col_rule` was not applied to `patients`, leaving all 8 default columns from `healthcare.yaml` (`patient_id`, `full_name`, `gender`, etc.) in place.
+  - The UI table header then rendered `PATIENT_ID` and `FULL_NAME` from the unchanged domain pack.
+- **Contract Enforcement**:
+  - `explicit_table` regex must be updated to `r"\btable(?:\s+name)?(?:\s+is|\s*[:=])?\s+([a-zA-Z0-9_]+)"` so `"Table name: patients"` correctly extracts `"patients"`.
+  - **User-specified columns and table name must ALWAYS win**: If the user specifies columns `["customer_id", "disease"]`, any domain pack (`healthcare.yaml`) is strictly prohibited from overriding the column list or column count.
+  - **Vocabulary Provider Only**: Domain packs and `DOMAIN_VOCABULARIES["healthcare"]` may ONLY supply vocabulary (e.g. real disease names from ICD-10 for the `disease` column), never the column list.
+  - When an exact single table is requested with exact columns, all other related tables (`visits`, `lab_reports`) are pruned away.
+
+#### 4. LLM Spec Fallback Logging & UI Prominence
+- When LLM parsing/validation fails and domain pack fallback is utilized:
+  - Backend must log loudly: `logger.warning(f"LLM spec inference failed or using domain pack fallback for prompt: '{prompt}'")`.
+  - `DomainSpec.fallback_used = True` and a descriptive `fallback_message` must be returned to the client.
+  - The UI must display an explicit warning badge/notification (e.g., "⚡ Schema generated using Healthcare Domain Pack vocabulary fallback") rather than silently substituting without user awareness.
+
+#### 5. Tests to Add
+Add `backend/tests/test_user_columns_bug0c.py` verifying:
+- (a) Prompt with table `"patients"` and 2 columns `customer_id (unique)` and `disease` strictly produces table `"patients"` with columns `["customer_id", "disease"]`.
+- (b) Same prompt with table `"xyz_records"` produces table `"xyz_records"` with exact columns `["customer_id", "disease"]`.
+- (c) Generates exactly 500 rows.
+- (d) `customer_id` is 100% unique.
+- (e) `disease` values come from the authentic clinical disease/ICD-10 vocabulary (e.g. containing real conditions like Diabetes, Hypertension, Asthma), never dummy placeholders like `"Disease 1"` or `"Option A"`.
+

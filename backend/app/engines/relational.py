@@ -254,6 +254,19 @@ class RelationalEngine:
                 rng=rng
             )
 
+        # 5. Anomaly / Fraud Injection
+        from backend.app.engines.fraud import FraudEngine
+        for name, table_df in tables_data.items():
+            if "is_fraud" in table_df.columns:
+                t_spec = domain_spec.get_table(name)
+                c_spec = next((c for c in t_spec.columns if c.name == "is_fraud"), None) if t_spec else None
+                rate = 0.02
+                if c_spec and isinstance(c_spec.values, dict) and "1" in c_spec.values:
+                    rate = float(c_spec.values["1"])
+                tables_data[name] = FraudEngine.inject_fraud_patterns(
+                    table_df, target_col="is_fraud", rate=rate, seed=master_seed
+                )
+
         return tables_data
 
     def _apply_cross_table_rules(

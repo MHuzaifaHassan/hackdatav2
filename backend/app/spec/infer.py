@@ -68,15 +68,17 @@ class SpecInferenceEngine:
                 logger.warning(f"Repair attempt {attempt + 1} failed: {error_msg}")
 
         # Fallback to domain pack if LLM / repair failed
-        logger.info("Repair attempts exhausted; falling back to domain pack matching prompt.")
+        logger.warning(f"[LOUD FALLBACK WARNING] LLM spec generation unavailable or failed; using domain pack fallback for prompt: '{prompt}'")
         spec = cls._fallback_to_pack(prompt)
         from backend.app.spec.nlp_parser import scale_domain_spec_to_query
-        return scale_domain_spec_to_query(spec, prompt)
+        scaled_spec = scale_domain_spec_to_query(spec, prompt)
+        scaled_spec.fallback_used = True
+        return scaled_spec
 
     @classmethod
     def _fallback_to_pack(cls, prompt: str) -> DomainSpec:
         p_lower = prompt.lower()
-        if any(w in p_lower for w in ["patient", "hospital", "health", "clinic", "doctor"]):
+        if any(w in p_lower for w in ["patient", "hospital", "health", "clinic", "doctor", "disease", "diagnosis", "medical", "clinical"]):
             spec = get_domain_pack("healthcare")
         elif any(w in p_lower for w in ["customer", "product", "cart", "shop", "ecommerce", "order"]):
             spec = get_domain_pack("ecommerce")
