@@ -1,0 +1,126 @@
+domain: fintech
+locale: en_US
+currency: USD
+seed: 42
+tables:
+  - name: customers
+    rows: 1000
+    columns:
+      - name: customer_id
+        type: id
+        pk: true
+        prefix: "CUST-"
+      - name: full_name
+        type: person_name
+      - name: email
+        type: email
+        derive_from: full_name
+        unique: true
+      - name: phone
+        type: phone
+      - name: signup_date
+        type: date
+        range: ["2022-01-01", "2025-08-01"]
+      - name: segment
+        type: category
+        values:
+          retail: 0.70
+          premium: 0.25
+          business: 0.05
+      - name: income
+        type: float
+        dist: lognormal
+        params:
+          mean: 10.5
+          sigma: 0.5
+        min: 15000.0
+        max: 500000.0
+        null_rate: 0.02
+        outlier_rate: 0.01
+
+  - name: accounts
+    rows: 1600
+    columns:
+      - name: account_id
+        type: id
+        pk: true
+        prefix: "ACC-"
+      - name: customer_id
+        type: id
+      - name: account_type
+        type: category
+        values:
+          checking: 0.60
+          savings: 0.30
+          investment: 0.10
+      - name: opened_date
+        type: date
+        range: ["2022-02-01", "2025-08-15"]
+      - name: balance
+        type: float
+        dist: normal
+        params:
+          mean: 8500.0
+          std: 4000.0
+        min: 0.0
+        max: 250000.0
+      - name: is_active
+        type: boolean
+        params:
+          true_prob: 0.95
+
+  - name: transactions
+    rows: 5000
+    columns:
+      - name: transaction_id
+        type: id
+        pk: true
+        prefix: "TXN-"
+      - name: account_id
+        type: id
+      - name: transaction_date
+        type: datetime
+        range: ["2023-01-01", "2025-09-01"]
+      - name: amount
+        type: float
+        dist: exponential
+        params:
+          scale: 85.0
+        min: 1.0
+        max: 10000.0
+      - name: txn_type
+        type: category
+        values:
+          debit: 0.65
+          credit: 0.25
+          transfer: 0.10
+      - name: description
+        type: text-placeholder
+
+relations:
+  - parent: customers
+    child: accounts
+    fk: customer_id
+    cardinality: "1:N"
+    child_count:
+      dist: poisson
+      lambda: 1.6
+      min: 1
+  - parent: accounts
+    child: transactions
+    fk: account_id
+    cardinality: "1:N"
+    child_count:
+      dist: poisson
+      lambda: 3.2
+      min: 1
+
+rules:
+  - "accounts.opened_date >= customers.signup_date"
+  - "transactions.transaction_date >= accounts.opened_date"
+
+edge_cases:
+  null_rate: 0.02
+  outlier_rate: 0.01
+  duplicates: false
+  unicode_names: false

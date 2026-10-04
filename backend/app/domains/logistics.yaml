@@ -1,0 +1,72 @@
+domain: logistics
+locale: en_US
+currency: USD
+seed: 42
+tables:
+  - name: warehouses
+    rows: 50
+    columns:
+      - name: warehouse_id
+        type: id
+        pk: true
+        prefix: "WH-"
+      - name: city
+        type: city
+      - name: state
+        type: state
+      - name: capacity_sqft
+        type: int
+        dist: normal
+        params:
+          mean: 75000.0
+          std: 25000.0
+        min: 20000
+        max: 200000
+
+  - name: shipments
+    rows: 1500
+    columns:
+      - name: shipment_id
+        type: id
+        pk: true
+        prefix: "SHP-"
+      - name: origin_warehouse_id
+        type: id
+      - name: destination_city
+        type: city
+      - name: ship_date
+        type: date
+        range: ["2024-01-01", "2025-08-31"]
+      - name: weight_kg
+        type: float
+        dist: lognormal
+        params:
+          mean: 2.8
+          sigma: 0.9
+        min: 0.5
+        max: 500.0
+      - name: status
+        type: category
+        values:
+          delivered: 0.75
+          in_transit: 0.15
+          exception: 0.05
+          pending: 0.05
+
+relations:
+  - parent: warehouses
+    child: shipments
+    fk: origin_warehouse_id
+    cardinality: "1:N"
+    child_count:
+      dist: poisson
+      lambda: 30.0
+      min: 5
+
+rules:
+  - "shipments.weight_kg > 0"
+
+edge_cases:
+  null_rate: 0.01
+  outlier_rate: 0.01
+  duplicates: false

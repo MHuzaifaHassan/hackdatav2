@@ -1,0 +1,134 @@
+domain: healthcare
+locale: en_US
+currency: USD
+seed: 42
+tables:
+  - name: patients
+    rows: 500
+    columns:
+      - name: patient_id
+        type: id
+        pk: true
+        prefix: "PAT-"
+      - name: full_name
+        type: person_name
+      - name: gender
+        type: category
+        values:
+          female: 0.51
+          male: 0.49
+      - name: birth_date
+        type: date
+        range: ["1940-01-01", "2015-12-31"]
+      - name: blood_type
+        type: category
+        values:
+          "O+": 0.38
+          "A+": 0.34
+          "B+": 0.09
+          "O-": 0.07
+          "A-": 0.06
+          "AB+": 0.03
+          "B-": 0.02
+          "AB-": 0.01
+      - name: phone
+        type: phone
+      - name: email
+        type: email
+        derive_from: full_name
+
+  - name: visits
+    rows: 1500
+    columns:
+      - name: visit_id
+        type: id
+        pk: true
+        prefix: "VIS-"
+      - name: patient_id
+        type: id
+      - name: visit_date
+        type: date
+        range: ["2023-01-01", "2025-08-30"]
+      - name: department
+        type: category
+        values:
+          General Medicine: 0.35
+          Cardiology: 0.20
+          Pediatrics: 0.15
+          Orthopedics: 0.15
+          Emergency: 0.15
+      - name: attending_physician
+        type: person_name
+      - name: systolic_bp
+        type: int
+        dist: normal
+        params:
+          mean: 122.0
+          std: 14.0
+        min: 90
+        max: 180
+      - name: diastolic_bp
+        type: int
+        dist: normal
+        params:
+          mean: 80.0
+          std: 10.0
+        min: 60
+        max: 110
+
+  - name: lab_reports
+    rows: 2500
+    columns:
+      - name: report_id
+        type: id
+        pk: true
+        prefix: "LAB-"
+      - name: visit_id
+        type: id
+      - name: test_name
+        type: category
+        values:
+          Complete Blood Count: 0.40
+          Lipid Panel: 0.25
+          Metabolic Panel: 0.20
+          Thyroid TSH: 0.15
+      - name: result_value
+        type: float
+        dist: normal
+        params:
+          mean: 95.0
+          std: 18.0
+        min: 20.0
+        max: 300.0
+      - name: status
+        type: category
+        values:
+          Normal: 0.78
+          Abnormal: 0.18
+          Critical: 0.04
+
+relations:
+  - parent: patients
+    child: visits
+    fk: patient_id
+    cardinality: "1:N"
+    child_count:
+      dist: poisson
+      lambda: 3.0
+      min: 1
+  - parent: visits
+    child: lab_reports
+    fk: visit_id
+    cardinality: "1:N"
+    child_count:
+      dist: poisson
+      lambda: 1.7
+      min: 1
+
+rules:
+  - "visits.visit_date >= patients.birth_date"
+
+edge_cases:
+  null_rate: 0.01
+  outlier_rate: 0.01
+  duplicates: false

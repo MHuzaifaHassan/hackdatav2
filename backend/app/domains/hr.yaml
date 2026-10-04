@@ -1,0 +1,193 @@
+domain: hr
+locale: en_US
+currency: USD
+seed: 42
+tables:
+  - name: departments
+    rows: 10
+    columns:
+      - name: department_id
+        type: id
+        pk: true
+        prefix: "DEP-"
+      - name: department_name
+        type: category
+        values:
+          Engineering: 0.25
+          Product Management: 0.15
+          Sales & Business: 0.20
+          Marketing: 0.15
+          Human Resources: 0.10
+          Finance & Accounting: 0.10
+          Legal & Compliance: 0.05
+      - name: location
+        type: category
+        values:
+          New York: 0.30
+          San Francisco: 0.25
+          London: 0.20
+          Berlin: 0.15
+          Singapore: 0.10
+      - name: budget
+        type: float
+        min: 150000.0
+        max: 3000000.0
+
+  - name: employees
+    rows: 100
+    columns:
+      - name: employee_id
+        type: id
+        pk: true
+        prefix: "EMP-"
+      - name: department_id
+        type: id
+      - name: full_name
+        type: person_name
+      - name: email
+        type: email
+        derive_from: full_name
+        unique: true
+      - name: phone
+        type: phone
+        unique: true
+      - name: hire_date
+        type: date
+        range: ["2018-01-01", "2025-06-01"]
+      - name: job_title
+        type: category
+        values:
+          Software Engineer: 0.20
+          Senior Engineer: 0.15
+          Product Manager: 0.12
+          Account Executive: 0.15
+          Marketing Specialist: 0.12
+          HR Business Partner: 0.08
+          Financial Analyst: 0.10
+          Legal Counsel: 0.08
+      - name: is_manager
+        type: boolean
+        params:
+          true_prob: 0.15
+
+  - name: salaries
+    rows: 100
+    columns:
+      - name: salary_id
+        type: id
+        pk: true
+        prefix: "SAL-"
+      - name: employee_id
+        type: id
+        unique: true
+      - name: base_salary
+        type: float
+        dist: normal
+        params:
+          mean: 88000.0
+          std: 22000.0
+        min: 45000.0
+        max: 240000.0
+      - name: bonus
+        type: float
+        dist: uniform
+        min: 2000.0
+        max: 35000.0
+      - name: effective_date
+        type: date
+        range: ["2023-01-01", "2025-08-01"]
+      - name: currency
+        type: category
+        values:
+          USD: 1.0
+
+  - name: attendance
+    rows: 300
+    columns:
+      - name: attendance_id
+        type: id
+        pk: true
+        prefix: "ATT-"
+      - name: employee_id
+        type: id
+      - name: work_date
+        type: date
+        range: ["2025-01-01", "2025-08-31"]
+      - name: status
+        type: category
+        values:
+          Present: 0.75
+          Remote: 0.18
+          Half-day: 0.04
+          On-leave: 0.03
+      - name: hours_worked
+        type: float
+        dist: normal
+        params:
+          mean: 8.0
+          std: 0.8
+        min: 4.0
+        max: 12.0
+
+  - name: leave_requests
+    rows: 50
+    columns:
+      - name: leave_id
+        type: id
+        pk: true
+        prefix: "LEV-"
+      - name: employee_id
+        type: id
+      - name: leave_type
+        type: category
+        values:
+          Annual Vacation: 0.50
+          Sick Leave: 0.30
+          Parental Leave: 0.10
+          Personal Emergency: 0.10
+      - name: days_requested
+        type: int
+        min: 1
+        max: 14
+      - name: status
+        type: category
+        values:
+          Approved: 0.80
+          Pending: 0.12
+          Rejected: 0.08
+
+relations:
+  - parent: departments
+    child: employees
+    fk: department_id
+    cardinality: "1:N"
+
+  - parent: employees
+    child: salaries
+    fk: employee_id
+    cardinality: "1:1"
+    ratio: 1.0
+
+  - parent: employees
+    child: attendance
+    fk: employee_id
+    cardinality: "1:N"
+    ratio: 3.0
+
+  - parent: employees
+    child: leave_requests
+    fk: employee_id
+    cardinality: "1:N"
+    ratio: 0.5
+
+rules:
+  - "salaries.effective_date >= employees.hire_date"
+  - "attendance.work_date >= employees.hire_date"
+
+edge_cases:
+  null_rate: 0.01
+  outlier_rate: 0.01
+  duplicates: false
+  unicode_names: false
+  mask_emails: false
+  hash_secrets: false
